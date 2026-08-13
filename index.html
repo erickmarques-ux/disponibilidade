@@ -64,7 +64,7 @@
       <div id="avisoStatus"></div>
       <div class="check esconde" id="boxInoperante">
         <input type="checkbox" id="ckInoperante">
-        <span>Você está marcado como <b>inoperante</b>. Marque para <b>confirmar que está disponível</b>.</span>
+        <span>Você está marcado como <b>INOPERANTE</b>. Ao marcar esta caixa, você <b>confirma que está apto a rodar nos dias informados</b>.<br><br>⚠️ Se não puder comparecer, <b>avise o dispatcher</b>. O não comparecimento será considerado <b>NO SHOW</b> (pausa de 5 dias).</span>
       </div>
     </div>
 
@@ -114,7 +114,10 @@ const CFG = {
   HORA_ABRE: 21,
   HORA_FECHA: 18
 };
-const ST_BLOQUEIO = { CHURN: 'Cadastro em churn.', PAUSADO: 'Você está pausado.' };
+const ST_BLOQUEIO = {
+  CHURN: 'Seu cadastro está em churn e não é possível enviar disponibilidade. Procure o dispatcher.',
+  PAUSADO: 'Você está PAUSADO e não pode enviar disponibilidade neste período. Procure o dispatcher para saber a data de retorno.'
+};
 const ST_INOPERANTE = 'INOPERANTE';
 /*** ====================== ***/
 
@@ -148,7 +151,7 @@ function montarEscolha(){
 
   if(ST_BLOQUEIO[st]){
     aviso.className='aviso';
-    aviso.innerHTML='⛔ '+ST_BLOQUEIO[st]+' Não é possível enviar disponibilidade.';
+    aviso.innerHTML='⛔ '+ST_BLOQUEIO[st];
     document.getElementById('areaEscolha').classList.add('esconde');
     bt.classList.add('esconde');
     trocarPasso('passoDisp'); return;
