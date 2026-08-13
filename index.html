@@ -111,7 +111,8 @@ const CFG = {
   WORKER_URL: 'https://worker-kangu.erick-marques.workers.dev',
   FORM_RESPONSE_URL: 'https://docs.google.com/forms/d/e/1FAIpQLSd4E8RRBOBsgZD2AWsta88uCVW5m6hrV-17KXtrGCDDf-amkQ/formResponse',
   ENTRY_MOTORISTA: 'entry.567583292',
-  ENTRY_MODAL:     'entry.69884041',      // vai preenchido com o veículo do cadastro
+  ENTRY_MODAL:     'entry.69884041',      // valor fixo (MODAL_VALOR abaixo)
+  MODAL_VALOR:     'UTILITARIO FIXO',     // precisa ser IDÊNTICO à opção no form
   ENTRY_DATA:      'entry.1223239437',    // pergunta de DATA (enviada como _year/_month/_day)
   // cada ciclo é uma PERGUNTA separada no form:
   CICLOS: [
@@ -254,7 +255,7 @@ document.getElementById('btEnviar').onclick = async function(){
     const [ano,mes,dia]=iso.split('-');
     const campos=[
       [CFG.ENTRY_MOTORISTA, atual.nome],
-      [CFG.ENTRY_MODAL, atual.veiculo || 'UTILITÁRIO'],
+      [CFG.ENTRY_MODAL, CFG.MODAL_VALOR],
       [CFG.ENTRY_DATA+'_year',  ano],
       [CFG.ENTRY_DATA+'_month', String(Number(mes))],
       [CFG.ENTRY_DATA+'_day',   String(Number(dia))]
@@ -297,7 +298,7 @@ async function removerDia(dataBr){
   const p=dataBr.split('/');
   const campos=[
     [CFG.ENTRY_MOTORISTA, atual.nome],
-    [CFG.ENTRY_MODAL, atual.veiculo || 'UTILITÁRIO'],
+    [CFG.ENTRY_MODAL, CFG.MODAL_VALOR],
     [CFG.ENTRY_DATA+'_year',  p[2]],
     [CFG.ENTRY_DATA+'_month', String(Number(p[1]))],
     [CFG.ENTRY_DATA+'_day',   String(Number(p[0]))],
