@@ -37,6 +37,11 @@
   .msg .big{font-size:2.4rem}
   .esconde{display:none}
   .erro{color:#fca5a5;font-size:.85rem;margin-top:8px;min-height:1em}
+  .banner{border-left:3px solid var(--amber);background:rgba(249,115,22,.08);padding:11px 12px;
+    border-radius:8px;margin-top:12px;font-size:.82rem;line-height:1.5;color:var(--ink)}
+  .banner.fechado{border-left-color:var(--alert);background:rgba(239,68,68,.08)}
+  .mini{width:auto;margin:0;padding:6px 10px;font-size:.8rem;background:rgba(239,68,68,.15);
+    color:#fca5a5;border:1px solid var(--alert);border-radius:8px;font-weight:600}
   .item{display:flex;justify-content:space-between;gap:10px;border-bottom:1px solid var(--line);
     padding:10px 2px;font-size:.9rem}
   .item .d{font-weight:700}
@@ -48,6 +53,7 @@
 <div class="wrap">
   <h1>Disponibilidade <em>Tropa da Kangu</em></h1>
   <div class="sub" id="sub">Informe sua placa para começar.</div>
+  <div class="banner" id="banner"></div>
 
   <!-- PASSO 1: placa -->
   <div id="passoPlaca">
@@ -100,16 +106,21 @@
 </div>
 
 <script>
-/*** ======= CONFIG ======= ***/
+/*** ======= CONFIG (preenchida com o form real) ======= ***/
 const CFG = {
   WORKER_URL: 'https://worker-kangu.erick-marques.workers.dev',
-  // Rode gerarLinkPrePreenchido() no Apps Script e use o link do log:
-  // https://docs.google.com/forms/d/e/AAAA.../viewform?...entry.111=...&entry.222=...
-  FORM_RESPONSE_URL: 'https://docs.google.com/forms/d/e/COLE_O_ID_PUBLICADO/formResponse',
-  ENTRY_MOTORISTA: 'entry.0000000000',   // pergunta MOTORISTA
-  ENTRY_DATA:      'entry.1111111111',   // pergunta DATA (dia declarado)
-  ENTRY_CICLOS:    'entry.2222222222',   // pergunta CICLOS (caixas de seleção)
-  CICLOS: ['AM (8:00)', 'PM (13:00)', 'SD'],  // textos EXATOS das opções no form
+  FORM_RESPONSE_URL: 'https://docs.google.com/forms/d/e/1FAIpQLSd4E8RRBOBsgZD2AWsta88uCVW5m6hrV-17KXtrGCDDf-amkQ/formResponse',
+  ENTRY_MOTORISTA: 'entry.567583292',
+  ENTRY_MODAL:     'entry.69884041',      // vai preenchido com o veículo do cadastro
+  ENTRY_DATA:      'entry.1223239437',    // pergunta de DATA (enviada como _year/_month/_day)
+  // cada ciclo é uma PERGUNTA separada no form:
+  CICLOS: [
+    { label: 'AM (8:00)',  entry: 'entry.1342764593' },
+    { label: 'PM (13:00)', entry: 'entry.1297754750' },
+    { label: 'SD (15:00)', entry: 'entry.707211593' }
+  ],
+  ENTRY_EXCLUIR: 'entry.1396339567',
+  VALOR_EXCLUIR: 'EXCLUIR MEU NOME',
   DIAS_FUTUROS: 7,
   HORA_ABRE: 21,
   HORA_FECHA: 18
@@ -120,6 +131,30 @@ const ST_BLOQUEIO = {
 };
 const ST_INOPERANTE = 'INOPERANTE';
 /*** ====================== ***/
+
+// Regra do prazo:
+//  - até HORA_FECHA (18h): pode marcar/excluir de AMANHÃ em diante (offset 1)
+//  - de HORA_ABRE (21h) em diante: amanhã travado, só DEPOIS DE AMANHÃ (offset 2)
+function primeiroOffset(){ return (new Date().getHours() >= CFG.HORA_ABRE) ? 2 : 1; }
+function dataMinima(){ const d=new Date(); d.setHours(0,0,0,0); d.setDate(d.getDate()+primeiroOffset()); return d; }
+function dataEditavel(ddmmaaaa){
+  const p=String(ddmmaaaa).split('/');
+  if(p.length<3) return false;
+  return new Date(Number(p[2]), Number(p[1])-1, Number(p[0])) >= dataMinima();
+}
+function atualizarBanner(){
+  const el=document.getElementById('banner');
+  if(foraDoHorario()){
+    el.className='banner fechado';
+    el.innerHTML='⛔ <b>Fechado no momento.</b> O sistema reabre às <b>'+CFG.HORA_ABRE+'h</b> — a partir daí, os envios valem de <b>depois de amanhã</b> em diante.';
+    return;
+  }
+  const min=fmt(dataMinima()).slice(0,5);
+  el.className='banner';
+  el.innerHTML='📢 <b>Prazo:</b> marcar ou <b>excluir</b> disponibilidade do dia seguinte só até as <b>'+CFG.HORA_FECHA+'h</b> da véspera. '+
+    'Após as <b>'+CFG.HORA_ABRE+'h</b>, vale a partir de depois de amanhã. '+
+    'Agora você pode enviar para <b>'+min+'</b> em diante.';
+}
 
 let atual = null, placaAtual = '';
 const DIAS_SEMANA = ['dom','seg','ter','qua','qui','sex','sáb'];
@@ -165,15 +200,16 @@ function montarEscolha(){
     aviso.textContent='Marque os dias e os ciclos da sua disponibilidade.';
   }
 
-  const hoje=new Date(); const chips=[];
-  for(let i=1;i<=CFG.DIAS_FUTUROS;i++){
+  const hoje=new Date(); const chips=[]; const off=primeiroOffset();
+  for(let i=off;i<off+CFG.DIAS_FUTUROS;i++){
     const d=new Date(hoje); d.setDate(d.getDate()+i);
-    chips.push('<div class="chip dia" data-v="'+fmt(d)+'">'+
+    const iso=d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2);
+    chips.push('<div class="chip dia" data-v="'+iso+'">'+
       DIAS_SEMANA[d.getDay()]+' '+('0'+d.getDate()).slice(-2)+'/'+('0'+(d.getMonth()+1)).slice(-2)+'</div>');
   }
   document.getElementById('chipsDias').innerHTML=chips.join('');
   document.getElementById('chipsCiclos').innerHTML =
-    CFG.CICLOS.map(c=>'<div class="chip ciclo" data-v="'+c+'">'+c+'</div>').join('');
+    CFG.CICLOS.map((c,i)=>'<div class="chip ciclo" data-i="'+i+'">'+c.label+'</div>').join('');
   document.querySelectorAll('.chip').forEach(ch=>{
     ch.onclick=function(){ this.classList.toggle('on'); validar(); };
   });
@@ -181,12 +217,13 @@ function montarEscolha(){
   trocarPasso('passoDisp');
 }
 
-function selecionados(sel){ return [...document.querySelectorAll(sel+'.on')].map(e=>e.dataset.v); }
+function selecionadosDias(){ return [...document.querySelectorAll('.chip.dia.on')].map(e=>e.dataset.v); }
+function selecionadosCiclos(){ return [...document.querySelectorAll('.chip.ciclo.on')].map(e=>CFG.CICLOS[Number(e.dataset.i)]); }
 function validar(){
   const st=String(atual.status||'').trim().toUpperCase();
   const okIno = st!==ST_INOPERANTE || document.getElementById('ckInoperante').checked;
   document.getElementById('btEnviar').disabled =
-    !(okIno && selecionados('.chip.dia').length && selecionados('.chip.ciclo').length);
+    !(okIno && selecionadosDias().length && selecionadosCiclos().length);
 }
 
 /* envio: um formResponse por dia */
@@ -203,16 +240,23 @@ function postForm(campos){
 
 document.getElementById('btEnviar').onclick = async function(){
   if(foraDoHorario()){ document.getElementById('erroEnviar').textContent='Fora do horário.'; return; }
-  const dias=selecionados('.chip.dia'), ciclos=selecionados('.chip.ciclo');
+  const dias=selecionadosDias(), ciclos=selecionadosCiclos();
   this.disabled=true; this.textContent='Enviando…';
-  for(const dia of dias){
-    const campos=[[CFG.ENTRY_MOTORISTA, atual.nome],[CFG.ENTRY_DATA, dia]];
-    ciclos.forEach(c=>campos.push([CFG.ENTRY_CICLOS, c])); // checkbox: repete o mesmo entry
+  for(const iso of dias){
+    const [ano,mes,dia]=iso.split('-');
+    const campos=[
+      [CFG.ENTRY_MOTORISTA, atual.nome],
+      [CFG.ENTRY_MODAL, atual.veiculo || 'UTILITÁRIO'],
+      [CFG.ENTRY_DATA+'_year',  ano],
+      [CFG.ENTRY_DATA+'_month', String(Number(mes))],
+      [CFG.ENTRY_DATA+'_day',   String(Number(dia))]
+    ];
+    ciclos.forEach(c=>campos.push([c.entry, c.label]));  // cada ciclo no seu próprio entry
     await postForm(campos);
   }
   this.textContent='Enviar disponibilidade';
   document.getElementById('resumoOk').innerHTML =
-    'Disponibilidade registrada!<br><b>'+dias.length+'</b> dia(s) · ciclos: <b>'+ciclos.join(', ')+'</b>'+
+    'Disponibilidade registrada!<br><b>'+dias.length+'</b> dia(s) · ciclos: <b>'+ciclos.map(c=>c.label).join(', ')+'</b>'+
     '<br><small style="color:var(--mute)">Reenviar o mesmo dia substitui o envio anterior.</small>';
   trocarPasso('passoOk');
 };
@@ -227,9 +271,33 @@ async function consultar(){
     const j=await r.json();
     const env=j.envios||[];
     el.innerHTML = env.length
-      ? env.map(e=>'<div class="item"><span class="d">'+e.data+'</span><span class="c">'+e.ciclos+'</span></div>').join('')
+      ? env.map(e=>{
+          const pode = dataEditavel(e.data) && !foraDoHorario();
+          return '<div class="item"><span class="d">'+e.data+'</span><span class="c">'+e.ciclos+'</span>'+
+            (pode
+              ? '<button class="mini" onclick="removerDia(\''+e.data+'\')">🗑 Excluir</button>'
+              : '<span class="c" title="Prazo encerrado">🔒</span>')+
+            '</div>';
+        }).join('')
       : 'Nenhum envio encontrado.';
   }catch(e){ el.textContent='Falha ao buscar. Tente de novo.'; }
+}
+
+async function removerDia(dataBr){
+  if(!confirm('Excluir sua disponibilidade de '+dataBr+'?')) return;
+  if(foraDoHorario() || !dataEditavel(dataBr)){ alert('Prazo encerrado para este dia.'); return; }
+  const p=dataBr.split('/');
+  const campos=[
+    [CFG.ENTRY_MOTORISTA, atual.nome],
+    [CFG.ENTRY_MODAL, atual.veiculo || 'UTILITÁRIO'],
+    [CFG.ENTRY_DATA+'_year',  p[2]],
+    [CFG.ENTRY_DATA+'_month', String(Number(p[1]))],
+    [CFG.ENTRY_DATA+'_day',   String(Number(p[0]))],
+    [CFG.ENTRY_EXCLUIR, CFG.VALOR_EXCLUIR]
+  ];
+  await postForm(campos);
+  document.getElementById('listaEnvios').innerHTML='🗑 Removendo <b>'+dataBr+'</b>… aguarde alguns segundos.';
+  setTimeout(consultar, 6000);
 }
 document.getElementById('btConsultar').onclick=consultar;
 document.getElementById('btVerEnvios').onclick=consultar;
@@ -239,6 +307,8 @@ function trocarPasso(id){
   ['passoPlaca','passoDisp','passoOk','passoConsulta'].forEach(p=>
     document.getElementById(p).classList.toggle('esconde', p!==id));
 }
+atualizarBanner();
+setInterval(atualizarBanner, 60000);
 </script>
 </body>
 </html>
