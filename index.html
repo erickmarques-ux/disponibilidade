@@ -15,23 +15,32 @@
   h1{font-size:1.15rem;font-weight:800;letter-spacing:-.02em;margin:0 0 2px}
   h1 em{font-style:normal;color:var(--amber)}
   .sub{color:var(--mute);font-size:.8rem;margin-bottom:18px}
-  label{display:block;font-size:.8rem;color:var(--mute);margin:14px 0 6px}
-  input,select{width:100%;background:var(--panel);border:1px solid var(--line);border-radius:10px;
-    color:var(--ink);padding:12px;font-size:1rem}
-  input[type=text]{text-transform:uppercase;letter-spacing:.08em}
+  label{display:block;font-size:.8rem;color:var(--mute);margin:16px 0 8px}
+  input[type=text]{width:100%;background:var(--panel);border:1px solid var(--line);border-radius:10px;
+    color:var(--ink);padding:12px;font-size:1rem;text-transform:uppercase;letter-spacing:.08em}
   button{width:100%;margin-top:18px;padding:13px;border:0;border-radius:10px;background:var(--amber);
     color:#0b0f14;font-size:1rem;font-weight:800;cursor:pointer}
   button:disabled{opacity:.5}
+  button.sec{background:var(--panel);color:var(--mute);border:1px solid var(--line);font-weight:600}
   .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;margin-top:16px}
   .nome{font-size:1.1rem;font-weight:800}
   .aviso{border-left:3px solid var(--alert);background:rgba(239,68,68,.08);padding:12px;border-radius:8px;margin-top:14px;font-size:.9rem}
   .aviso.ok{border-left-color:var(--ok);background:rgba(34,197,94,.08)}
   .check{display:flex;gap:10px;align-items:flex-start;margin-top:14px;font-size:.9rem;line-height:1.4}
   .check input{width:20px;height:20px;margin-top:1px}
-  .msg{text-align:center;padding:40px 10px}
+  .chips{display:flex;flex-wrap:wrap;gap:8px}
+  .chip{padding:9px 13px;border-radius:999px;border:1px solid var(--line);background:var(--panel);
+    color:var(--mute);font-size:.85rem;font-weight:600;cursor:pointer;user-select:none}
+  .chip.on{background:var(--amber);border-color:var(--amber);color:#0b0f14}
+  .chip.ciclo.on{background:var(--ok);border-color:var(--ok)}
+  .msg{text-align:center;padding:34px 10px}
   .msg .big{font-size:2.4rem}
   .esconde{display:none}
   .erro{color:#fca5a5;font-size:.85rem;margin-top:8px;min-height:1em}
+  .item{display:flex;justify-content:space-between;gap:10px;border-bottom:1px solid var(--line);
+    padding:10px 2px;font-size:.9rem}
+  .item .d{font-weight:700}
+  .item .c{color:var(--mute);text-align:right}
   .rod{color:#3d4a5c;font-size:.65rem;text-align:center;margin-top:26px;text-transform:uppercase;letter-spacing:.1em}
 </style>
 </head>
@@ -48,153 +57,184 @@
     <button id="btPlaca">Continuar</button>
   </div>
 
-  <!-- PASSO 2: confirmação + disponibilidade -->
+  <!-- PASSO 2: dias + ciclos -->
   <div id="passoDisp" class="esconde">
     <div class="card">
       <div class="nome" id="nomeMotorista">—</div>
       <div id="avisoStatus"></div>
       <div class="check esconde" id="boxInoperante">
         <input type="checkbox" id="ckInoperante">
-        <span>Você está marcado como <b>inoperante</b>. Marque para <b>confirmar que está disponível</b> para retornar.</span>
+        <span>Você está marcado como <b>inoperante</b>. Marque para <b>confirmar que está disponível</b>.</span>
       </div>
     </div>
 
-    <div id="campos"></div>
+    <div id="areaEscolha">
+      <label>Dias (toque para marcar um ou mais)</label>
+      <div class="chips" id="chipsDias"></div>
+      <label>Ciclos (valem para todos os dias marcados)</label>
+      <div class="chips" id="chipsCiclos"></div>
+    </div>
 
     <button id="btEnviar" disabled>Enviar disponibilidade</button>
+    <button id="btConsultar" class="sec">📅 Consultar meus envios</button>
     <div class="erro" id="erroEnviar"></div>
   </div>
 
   <!-- PASSO 3: sucesso -->
   <div id="passoOk" class="esconde msg">
     <div class="big">✅</div>
-    <p>Disponibilidade registrada!<br>Se você enviar de novo hoje, o novo envio substitui o anterior.</p>
+    <p id="resumoOk">Disponibilidade registrada!</p>
+    <button id="btVerEnvios" class="sec">📅 Ver meus envios</button>
+  </div>
+
+  <!-- PASSO 4: consulta -->
+  <div id="passoConsulta" class="esconde">
+    <div class="card">
+      <div class="nome" id="nomeConsulta">—</div>
+      <div id="listaEnvios" style="margin-top:10px">Carregando…</div>
+    </div>
+    <button id="btVoltar" class="sec">← Voltar</button>
   </div>
 
   <div class="rod">Tropa da Kangu</div>
 </div>
 
 <script>
-/*** ======= CONFIG — PREENCHA ======= ***/
+/*** ======= CONFIG ======= ***/
 const CFG = {
   WORKER_URL: 'https://worker-kangu.erick-marques.workers.dev',
-  // do formulário publicado (Enviar → link): .../forms/d/e/ISSO_AQUI/viewform
+  // Rode gerarLinkPrePreenchido() no Apps Script e use o link do log:
+  // https://docs.google.com/forms/d/e/AAAA.../viewform?...entry.111=...&entry.222=...
   FORM_RESPONSE_URL: 'https://docs.google.com/forms/d/e/COLE_O_ID_PUBLICADO/formResponse',
-  ENTRY_MOTORISTA: 'entry.0000000000',   // ID do campo MOTORISTA (ver instruções)
-  // Campos de disponibilidade — ajuste conforme as perguntas do seu form:
-  CAMPOS: [
-    { entry: 'entry.1111111111', label: 'Horário', tipo: 'select',
-      opcoes: ['AM (8:00)', 'PM (13:00)', 'SD'] }
-    // adicione mais objetos aqui se o form tiver mais perguntas
-  ],
+  ENTRY_MOTORISTA: 'entry.0000000000',   // pergunta MOTORISTA
+  ENTRY_DATA:      'entry.1111111111',   // pergunta DATA (dia declarado)
+  ENTRY_CICLOS:    'entry.2222222222',   // pergunta CICLOS (caixas de seleção)
+  CICLOS: ['AM (8:00)', 'PM (13:00)', 'SD'],  // textos EXATOS das opções no form
+  DIAS_FUTUROS: 7,
   HORA_ABRE: 21,
   HORA_FECHA: 18
 };
 const ST_BLOQUEIO = { CHURN: 'Cadastro em churn.', PAUSADO: 'Você está pausado.' };
 const ST_INOPERANTE = 'INOPERANTE';
-/*** ================================= ***/
+/*** ====================== ***/
 
-let atual = null; // { nome, status }
+let atual = null, placaAtual = '';
+const DIAS_SEMANA = ['dom','seg','ter','qua','qui','sex','sáb'];
+function fmt(d){ return ('0'+d.getDate()).slice(-2)+'/'+('0'+(d.getMonth()+1)).slice(-2)+'/'+d.getFullYear(); }
+function foraDoHorario(){ const h=new Date().getHours(); return !((h>=CFG.HORA_ABRE)||(h<CFG.HORA_FECHA)); }
 
-function foraDoHorario() {
-  const h = new Date().getHours();
-  return !((h >= CFG.HORA_ABRE) || (h < CFG.HORA_FECHA));
-}
-
-document.getElementById('btPlaca').onclick = async function () {
-  const placa = document.getElementById('placa').value.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
-  const erro = document.getElementById('erroPlaca');
-  erro.textContent = '';
-  if (placa.length < 6) { erro.textContent = 'Digite a placa completa.'; return; }
-
-  if (foraDoHorario()) {
-    erro.textContent = 'Fora do horário: disponível das ' + CFG.HORA_ABRE + 'h às ' + CFG.HORA_FECHA + 'h.';
-    return;
-  }
-
-  this.disabled = true; this.textContent = 'Verificando…';
-  try {
-    const r = await fetch(CFG.WORKER_URL + '/cadastro?placa=' + encodeURIComponent(placa));
+/* PASSO 1 */
+document.getElementById('btPlaca').onclick = async function(){
+  const placa = document.getElementById('placa').value.replace(/[^A-Za-z0-9]/g,'').toUpperCase();
+  const erro = document.getElementById('erroPlaca'); erro.textContent='';
+  if(placa.length<6){ erro.textContent='Digite a placa completa.'; return; }
+  if(foraDoHorario()){ erro.textContent='Fora do horário: das '+CFG.HORA_ABRE+'h às '+CFG.HORA_FECHA+'h.'; return; }
+  this.disabled=true; this.textContent='Verificando…';
+  try{
+    const r = await fetch(CFG.WORKER_URL+'/cadastro?placa='+encodeURIComponent(placa));
     const j = await r.json();
-    if (!j.found) { erro.textContent = 'Placa não encontrada no cadastro.'; return; }
-    atual = j;
-    mostrarDisponibilidade();
-  } catch (e) {
-    erro.textContent = 'Falha de conexão. Tente de novo.';
-  } finally {
-    this.disabled = false; this.textContent = 'Continuar';
-  }
+    if(!j.found){ erro.textContent='Placa não encontrada no cadastro.'; return; }
+    atual=j; placaAtual=placa; montarEscolha();
+  }catch(e){ erro.textContent='Falha de conexão. Tente de novo.'; }
+  finally{ this.disabled=false; this.textContent='Continuar'; }
 };
 
-function mostrarDisponibilidade() {
-  const st = String(atual.status || '').trim().toUpperCase();
-  document.getElementById('nomeMotorista').textContent = atual.nome || '(sem nome)';
-  const aviso = document.getElementById('avisoStatus');
-  const boxIno = document.getElementById('boxInoperante');
-  const bt = document.getElementById('btEnviar');
+/* PASSO 2 */
+function montarEscolha(){
+  const st = String(atual.status||'').trim().toUpperCase();
+  document.getElementById('nomeMotorista').textContent = atual.nome||'(sem nome)';
+  const aviso=document.getElementById('avisoStatus');
+  const bt=document.getElementById('btEnviar');
 
-  // bloqueio (churn / pausado)
-  if (ST_BLOQUEIO[st]) {
-    aviso.className = 'aviso';
-    aviso.innerHTML = '⛔ ' + ST_BLOQUEIO[st] + ' Não é possível enviar disponibilidade.';
-    document.getElementById('campos').innerHTML = '';
+  if(ST_BLOQUEIO[st]){
+    aviso.className='aviso';
+    aviso.innerHTML='⛔ '+ST_BLOQUEIO[st]+' Não é possível enviar disponibilidade.';
+    document.getElementById('areaEscolha').classList.add('esconde');
     bt.classList.add('esconde');
-    trocarPasso('passoDisp');
-    return;
+    trocarPasso('passoDisp'); return;
+  }
+  if(st===ST_INOPERANTE){
+    aviso.innerHTML='';
+    document.getElementById('boxInoperante').classList.remove('esconde');
+    document.getElementById('ckInoperante').onchange=validar;
+  }else{
+    aviso.className='aviso ok';
+    aviso.textContent='Marque os dias e os ciclos da sua disponibilidade.';
   }
 
-  // inoperante -> exige confirmação do próprio motorista
-  if (st === ST_INOPERANTE) {
-    aviso.innerHTML = '';
-    boxIno.classList.remove('esconde');
-    document.getElementById('ckInoperante').onchange = function () {
-      bt.disabled = !this.checked;
-    };
-  } else {
-    aviso.className = 'aviso ok';
-    aviso.textContent = 'Confirme que é você e informe sua disponibilidade.';
+  const hoje=new Date(); const chips=[];
+  for(let i=1;i<=CFG.DIAS_FUTUROS;i++){
+    const d=new Date(hoje); d.setDate(d.getDate()+i);
+    chips.push('<div class="chip dia" data-v="'+fmt(d)+'">'+
+      DIAS_SEMANA[d.getDay()]+' '+('0'+d.getDate()).slice(-2)+'/'+('0'+(d.getMonth()+1)).slice(-2)+'</div>');
   }
-
-  montarCampos();
-  bt.classList.remove('esconde');
-  bt.disabled = (st === ST_INOPERANTE); // libera só após confirmar
+  document.getElementById('chipsDias').innerHTML=chips.join('');
+  document.getElementById('chipsCiclos').innerHTML =
+    CFG.CICLOS.map(c=>'<div class="chip ciclo" data-v="'+c+'">'+c+'</div>').join('');
+  document.querySelectorAll('.chip').forEach(ch=>{
+    ch.onclick=function(){ this.classList.toggle('on'); validar(); };
+  });
+  validar();
   trocarPasso('passoDisp');
 }
 
-function montarCampos() {
-  const div = document.getElementById('campos');
-  div.innerHTML = CFG.CAMPOS.map(function (c, i) {
-    if (c.tipo === 'select') {
-      return '<label>' + c.label + '</label><select id="c' + i + '">' +
-        c.opcoes.map(o => '<option>' + o + '</option>').join('') + '</select>';
-    }
-    return '<label>' + c.label + '</label><input id="c' + i + '" type="text">';
-  }).join('');
+function selecionados(sel){ return [...document.querySelectorAll(sel+'.on')].map(e=>e.dataset.v); }
+function validar(){
+  const st=String(atual.status||'').trim().toUpperCase();
+  const okIno = st!==ST_INOPERANTE || document.getElementById('ckInoperante').checked;
+  document.getElementById('btEnviar').disabled =
+    !(okIno && selecionados('.chip.dia').length && selecionados('.chip.ciclo').length);
 }
 
-document.getElementById('btEnviar').onclick = function () {
-  if (foraDoHorario()) { document.getElementById('erroEnviar').textContent = 'Fora do horário.'; return; }
-  const dados = {};
-  dados[CFG.ENTRY_MOTORISTA] = atual.nome;
-  CFG.CAMPOS.forEach(function (c, i) { dados[c.entry] = document.getElementById('c' + i).value; });
-
-  // envio ao Google Form via iframe oculto
-  const sink = document.createElement('iframe'); sink.name = 'sink'; sink.style.display = 'none';
-  document.body.appendChild(sink);
-  const f = document.createElement('form');
-  f.action = CFG.FORM_RESPONSE_URL; f.method = 'POST'; f.target = 'sink';
-  Object.keys(dados).forEach(function (k) {
-    const inp = document.createElement('input'); inp.type = 'hidden'; inp.name = k; inp.value = dados[k];
-    f.appendChild(inp);
+/* envio: um formResponse por dia */
+function postForm(campos){
+  return new Promise(res=>{
+    const sink=document.createElement('iframe'); sink.name='sink'+Math.random(); sink.style.display='none';
+    document.body.appendChild(sink);
+    const f=document.createElement('form'); f.action=CFG.FORM_RESPONSE_URL; f.method='POST'; f.target=sink.name;
+    campos.forEach(([k,v])=>{ const i=document.createElement('input'); i.type='hidden'; i.name=k; i.value=v; f.appendChild(i); });
+    document.body.appendChild(f); f.submit();
+    setTimeout(res,600);
   });
-  document.body.appendChild(f); f.submit();
+}
 
-  setTimeout(function () { trocarPasso('passoOk'); document.getElementById('sub').textContent = ''; }, 700);
+document.getElementById('btEnviar').onclick = async function(){
+  if(foraDoHorario()){ document.getElementById('erroEnviar').textContent='Fora do horário.'; return; }
+  const dias=selecionados('.chip.dia'), ciclos=selecionados('.chip.ciclo');
+  this.disabled=true; this.textContent='Enviando…';
+  for(const dia of dias){
+    const campos=[[CFG.ENTRY_MOTORISTA, atual.nome],[CFG.ENTRY_DATA, dia]];
+    ciclos.forEach(c=>campos.push([CFG.ENTRY_CICLOS, c])); // checkbox: repete o mesmo entry
+    await postForm(campos);
+  }
+  this.textContent='Enviar disponibilidade';
+  document.getElementById('resumoOk').innerHTML =
+    'Disponibilidade registrada!<br><b>'+dias.length+'</b> dia(s) · ciclos: <b>'+ciclos.join(', ')+'</b>'+
+    '<br><small style="color:var(--mute)">Reenviar o mesmo dia substitui o envio anterior.</small>';
+  trocarPasso('passoOk');
 };
 
-function trocarPasso(id) {
-  ['passoPlaca', 'passoDisp', 'passoOk'].forEach(p =>
-    document.getElementById(p).classList.toggle('esconde', p !== id));
+/* consulta */
+async function consultar(){
+  trocarPasso('passoConsulta');
+  document.getElementById('nomeConsulta').textContent=atual.nome;
+  const el=document.getElementById('listaEnvios'); el.textContent='Carregando…';
+  try{
+    const r=await fetch(CFG.WORKER_URL+'/envios?placa='+encodeURIComponent(placaAtual)+'&t='+Date.now());
+    const j=await r.json();
+    const env=j.envios||[];
+    el.innerHTML = env.length
+      ? env.map(e=>'<div class="item"><span class="d">'+e.data+'</span><span class="c">'+e.ciclos+'</span></div>').join('')
+      : 'Nenhum envio encontrado.';
+  }catch(e){ el.textContent='Falha ao buscar. Tente de novo.'; }
+}
+document.getElementById('btConsultar').onclick=consultar;
+document.getElementById('btVerEnvios').onclick=consultar;
+document.getElementById('btVoltar').onclick=()=>trocarPasso('passoDisp');
+
+function trocarPasso(id){
+  ['passoPlaca','passoDisp','passoOk','passoConsulta'].forEach(p=>
+    document.getElementById(p).classList.toggle('esconde', p!==id));
 }
 </script>
 </body>
