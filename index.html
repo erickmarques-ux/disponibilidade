@@ -227,14 +227,22 @@ function validar(){
 }
 
 /* envio: um formResponse por dia */
+const DEBUG = new URLSearchParams(location.search).has('debug');
 function postForm(campos){
   return new Promise(res=>{
-    const sink=document.createElement('iframe'); sink.name='sink'+Math.random(); sink.style.display='none';
-    document.body.appendChild(sink);
-    const f=document.createElement('form'); f.action=CFG.FORM_RESPONSE_URL; f.method='POST'; f.target=sink.name;
-    campos.forEach(([k,v])=>{ const i=document.createElement('input'); i.type='hidden'; i.name=k; i.value=v; f.appendChild(i); });
+    const f=document.createElement('form'); f.action=CFG.FORM_RESPONSE_URL; f.method='POST';
+    if(DEBUG){
+      f.target='_blank';   // abre a resposta do Google numa aba visível
+    }else{
+      const sink=document.createElement('iframe'); sink.name='sink'+Math.random();
+      sink.style.display='none'; document.body.appendChild(sink);
+      f.target=sink.name;
+    }
+    campos.concat([['fvv','1'],['pageHistory','0']]).forEach(([k,v])=>{
+      const i=document.createElement('input'); i.type='hidden'; i.name=k; i.value=v; f.appendChild(i);
+    });
     document.body.appendChild(f); f.submit();
-    setTimeout(res,600);
+    setTimeout(res, DEBUG?1200:600);
   });
 }
 
