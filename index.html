@@ -121,6 +121,18 @@
   .mini{width:auto;margin:0;padding:8px 12px;font-size:.78rem;background:rgba(239,68,68,.12);
     color:#fca5a5;border:1px solid rgba(239,68,68,.4);border-radius:10px;font-weight:700;flex:0 0 auto}
   .mini.solic{background:rgba(245,179,1,.14);color:var(--gold2);border-color:rgba(245,179,1,.45)}
+  .badge2{font-size:.7rem;font-weight:700;padding:6px 10px;border-radius:999px;flex:0 0 auto;line-height:1.2}
+  .badge2.ana{background:rgba(245,179,1,.14);color:var(--gold2);border:1px solid rgba(245,179,1,.4)}
+  .badge2.apr{background:rgba(239,68,68,.14);color:#fca5a5;border:1px solid rgba(239,68,68,.45)}
+  .badge2.neg{background:var(--card2);color:var(--mute);border:1px solid var(--line)}
+  /* histórico de No Show */
+  #histNS{margin-top:16px;border-top:1px dashed rgba(239,68,68,.35);padding-top:12px}
+  .hTit{font-size:.82rem;font-weight:800;color:#fca5a5;display:flex;align-items:center;gap:8px;margin-bottom:6px}
+  .hCnt{background:rgba(239,68,68,.18);border:1px solid rgba(239,68,68,.4);border-radius:999px;
+    padding:2px 9px;font-size:.72rem}
+  .hItem{display:flex;justify-content:space-between;font-size:.8rem;color:var(--ink);
+    padding:6px 2px;border-bottom:1px solid rgba(38,43,52,.6)}
+  .hItem .hReg{color:var(--dim);font-size:.7rem}
   .vazio{text-align:center;color:var(--mute);padding:22px 8px;font-size:.88rem}
   /* MODAL de confirmação */
   .modal{position:fixed;inset:0;z-index:80;display:none;align-items:center;justify-content:center;padding:20px}
@@ -251,7 +263,8 @@
     <div id="passoConsulta" class="esconde">
       <button class="ghost" onclick="trocarPasso('passoDisp')">← Voltar</button>
       <div class="card"><div class="drv" id="drvConsulta"></div>
-        <div id="listaEnvios" style="margin-top:12px"></div></div>
+        <div id="listaEnvios" style="margin-top:12px"></div>
+        <div id="histNS" style="display:none"></div></div>
       <button class="ghost" style="justify-content:center" onclick="reiniciar()">← Informar outra placa</button>
     </div>
 
@@ -425,12 +438,18 @@ function preencherDrv(el){
 
 // mapa dd/MM/yyyy -> ciclos já enviados (texto)
 let enviosAtuais = {};
+let solicitacoes = {};   // dt -> 'ANALISE' | 'APROVADA' | 'NEGADA'
+let historicoNS = [];    // [{data, reg}]
 async function carregarEnviosAtuais(){
-  enviosAtuais = {};
+  enviosAtuais = {}; solicitacoes = {}; historicoNS = [];
   try{
     const r=await fetch(CFG.WORKER_URL+'/envios?placa='+encodeURIComponent(placaAtual)+'&t='+Date.now());
     const j=await r.json();
-    (j.envios||[]).forEach(e=>{ enviosAtuais[e.data]= e.ciclos||''; });
+    (j.envios||[]).forEach(e=>{
+      if(e.tipo==='hist'){ historicoNS.push({data:e.data, reg:e.reg||''}); }
+      else if(e.tipo==='sol'){ solicitacoes[e.data]=e.st||'ANALISE'; }
+      else{ enviosAtuais[e.data]= e.ciclos||''; }
+    });
   }catch(e){}
 }
 // monta a data nos dois formatos aceitos (texto único E year/month/day)
@@ -538,16 +557,31 @@ $('btEnviar').onclick=async function(){
 function renderEnvios(){
   const el=$('listaEnvios');
   const hoje=new Date(); hoje.setHours(0,0,0,0);
-  const lista=Object.keys(enviosAtuais)
+  const datas={}; Object.keys(enviosAtuais).forEach(d=>datas[d]=1); Object.keys(solicitacoes).forEach(d=>datas[d]=1);
+  const lista=Object.keys(datas)
     .filter(dt=>{ const p=dt.split('/'); return p.length===3 && new Date(+p[2],+p[1]-1,+p[0])>=hoje; })
     .sort((a,b)=>{ const pa=a.split('/'),pb=b.split('/'); return new Date(+pa[2],+pa[1]-1,+pa[0])-new Date(+pb[2],+pb[1]-1,+pb[0]); });
   el.innerHTML = lista.length ? lista.map(dt=>{
-    const pode=dataEditavel(dt)&&!foraDoHorario();
-    return '<div class="item" data-dt="'+dt+'"><span class="dt">'+dt.slice(0,5)+'</span><span class="cic">'+(enviosAtuais[dt]||'—')+'</span>'+
-      (pode
-        ? '<button class="mini" onclick="removerDia(\''+dt+'\')">🗑 Excluir</button>'
-        : '<button class="mini solic" onclick="solicitarExclusao(\''+dt+'\')">Solicitar</button>')+'</div>';
+    const sol=solicitacoes[dt];
+    let acao;
+    if(sol==='APROVADA')      acao='<span class="badge2 apr">❌ No Show — pausa 5 dias</span>';
+    else if(sol==='NEGADA')   acao='<span class="badge2 neg">Solicitação negada</span>';
+    else if(sol)              acao='<span class="badge2 ana">⏳ Em análise</span>';
+    else if(dataEditavel(dt)&&!foraDoHorario())
+                              acao='<button class="mini" onclick="removerDia(\''+dt+'\')">🗑 Excluir</button>';
+    else                      acao='<button class="mini solic" onclick="solicitarExclusao(\''+dt+'\')">Solicitar</button>';
+    return '<div class="item" data-dt="'+dt+'"><span class="dt">'+dt.slice(0,5)+'</span><span class="cic">'+(enviosAtuais[dt]||'—')+'</span>'+acao+'</div>';
   }).join('') : '<div class="vazio">Nenhuma disponibilidade de hoje em diante.</div>';
+
+  // histórico de No Show
+  const h=$('histNS');
+  if(historicoNS.length){
+    const ord=historicoNS.slice().sort((a,b)=>{ const pa=a.data.split('/'),pb=b.data.split('/');
+      return new Date(+pb[2],+pb[1]-1,+pb[0])-new Date(+pa[2],+pa[1]-1,+pa[0]); });
+    h.style.display='';
+    h.innerHTML='<div class="hTit">⚠️ Histórico de No Show <span class="hCnt">'+historicoNS.length+'</span></div>'+
+      ord.map(x=>'<div class="hItem"><span>'+x.data+'</span><span class="hReg">registrado em '+x.reg+'</span></div>').join('');
+  }else{ h.style.display='none'; h.innerHTML=''; }
 }
 
 async function consultar(){
@@ -557,9 +591,12 @@ async function consultar(){
   try{                                         // sincroniza em segundo plano
     const r=await fetch(CFG.WORKER_URL+'/envios?placa='+encodeURIComponent(placaAtual)+'&t='+Date.now());
     const j=await r.json();
-    const srv={}; (j.envios||[]).forEach(e=>{ srv[e.data]=e.ciclos||''; });
-    // funde: mantém o que o usuário acabou de mexer, completa com o servidor
+    const srv={}, srvSol={}, srvHist=[];
+    (j.envios||[]).forEach(e=>{ if(e.tipo==='hist') srvHist.push({data:e.data, reg:e.reg||''});
+      else if(e.tipo==='sol') srvSol[e.data]=e.st||'ANALISE'; else srv[e.data]=e.ciclos||''; });
     Object.keys(srv).forEach(dt=>{ if(enviosAtuais[dt]===undefined) enviosAtuais[dt]=srv[dt]; });
+    Object.keys(srvSol).forEach(dt=>{ solicitacoes[dt]=srvSol[dt]; }); // status do servidor manda
+    historicoNS = srvHist;
     renderEnvios();
   }catch(e){}
 }
@@ -587,11 +624,13 @@ async function solicitarExclusao(dataBr){
       'Fale com o responsável do grupo. 📦 Contamos com sua pontualidade, comprometimento e colaboração!',
     ok:'Enviar solicitação', cancel:'Cancelar' });
   if(!ok) return;
+  solicitacoes[dataBr]='ANALISE';   // selo aparece NA HORA
+  renderEnvios();
   const campos=[[CFG.ENTRY_MOTORISTA,atual.nome],[CFG.ENTRY_MODAL,modalDoMotorista()]]
     .concat(camposData(isoFromBr(dataBr)))
     .concat([[CFG.ENTRY_EXCLUIR,CFG.VALOR_SOLICITA]]);
   postForm(campos);
-  toast('Solicitação enviada. Aguarde a análise do dispatcher.');
+  toast('Solicitação enviada. Acompanhe o status aqui na consulta.');
 }
 $('btConsultar').onclick=consultar;
 $('btVerEnvios').onclick=consultar;
