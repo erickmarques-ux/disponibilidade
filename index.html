@@ -97,6 +97,16 @@
   .chip.on{background:var(--grad);border-color:transparent;color:#0b0f14;box-shadow:0 4px 14px rgba(245,179,1,.25)}
   .chip.ciclo.on{background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff;box-shadow:0 4px 14px rgba(34,197,94,.25)}
   .chip.off{opacity:.35;cursor:not-allowed;text-decoration:line-through}
+  /* última hora / lista de espera */
+  #ultimaHora{margin-top:18px;border-radius:16px;padding:15px;
+    background:linear-gradient(135deg, rgba(249,115,22,.14), rgba(139,92,246,.08));
+    border:1px solid rgba(249,115,22,.4)}
+  .uhTit{font-size:1rem;font-weight:800;color:#fdba74;margin-bottom:6px}
+  .uhTxt{font-size:.9rem;line-height:1.55;color:var(--ink);margin-bottom:12px}
+  .uhBtns{display:flex;flex-direction:column;gap:10px}
+  .uhBtn{width:100%;margin:0;padding:16px;border-radius:12px;font-size:1.05rem;font-weight:800;
+    background:var(--card);border:1.5px solid rgba(249,115,22,.5);color:#fdba74}
+  .uhBtn.feito{background:rgba(34,197,94,.14);border-color:rgba(34,197,94,.5);color:#7ee0a0}
   .chip.temEnvio{position:relative;border-color:rgba(34,197,94,.55)}
   .chip.temEnvio::after{content:"✓";position:absolute;top:-6px;right:-6px;width:18px;height:18px;
     background:var(--ok);color:#04120a;border-radius:50%;font-size:.62rem;font-weight:900;
@@ -126,6 +136,7 @@
   .badge2.ana{background:rgba(245,179,1,.14);color:var(--gold2);border:1px solid rgba(245,179,1,.4)}
   .badge2.apr{background:rgba(239,68,68,.14);color:#fca5a5;border:1px solid rgba(239,68,68,.45)}
   .badge2.neg{background:var(--card2);color:var(--mute);border:1px solid var(--line)}
+  .badge2.esp{background:rgba(249,115,22,.14);color:#fdba74;border:1px solid rgba(249,115,22,.45)}
   /* histórico de No Show */
   #histNS{margin-top:16px;border-top:1px dashed rgba(239,68,68,.35);padding-top:12px}
   .hTit{font-size:.82rem;font-weight:800;color:#fca5a5;display:flex;align-items:center;gap:8px;margin-bottom:6px}
@@ -271,6 +282,7 @@
         <label>Ciclos — valem para todos os dias</label>
         <div class="chips" id="chipsCiclos"></div>
       </div>
+      <div id="ultimaHora" style="display:none"></div>
       <button class="btp" id="btEnviar" disabled>Enviar disponibilidade</button>
       <button class="sec" id="btConsultar">📅 Consultar meus envios</button>
       <div class="erro" id="erroEnviar"></div>
@@ -468,6 +480,7 @@ const CFG = {
   ENTRY_EXCLUIR: 'entry.1396339567',
   VALOR_EXCLUIR: 'EXCLUIR MEU NOME',
   VALOR_SOLICITA: 'SOLICITAR EXCLUSAO (NO SHOW)',
+  VALOR_ESPERA: 'LISTA DE ESPERA',
   DIAS_FUTUROS: 7, HORA_ABRE: 21, HORA_FECHA: 18
 };
 const ST_BLOQUEIO = {
@@ -481,9 +494,16 @@ const $=id=>document.getElementById(id);
 
 function fmt(d){ return ('0'+d.getDate()).slice(-2)+'/'+('0'+(d.getMonth()+1)).slice(-2)+'/'+d.getFullYear(); }
 function foraDoHorario(){ const h=new Date().getHours(); return !((h>=CFG.HORA_ABRE)||(h<CFG.HORA_FECHA)); }
+// menor dia DENTRO DO PRAZO normal: antes das 18h = amanhã (D+1); depois das 21h = depois de amanhã (D+2)
 function primeiroOffset(){ return (new Date().getHours()>=CFG.HORA_ABRE)?2:1; }
 function dataMinima(){ const d=new Date(); d.setHours(0,0,0,0); d.setDate(d.getDate()+primeiroOffset()); return d; }
 function dataEditavel(br){ const p=String(br).split('/'); if(p.length<3) return false; return new Date(+p[2],+p[1]-1,+p[0])>=dataMinima(); }
+// dia que pode EXCLUIR direto (sem solicitar): D+2 em diante
+function depoisDeAmanha(){ const d=new Date(); d.setHours(0,0,0,0); d.setDate(d.getDate()+2); return d; }
+function podeExcluirDireto(br){ const p=String(br).split('/'); if(p.length<3) return false; return new Date(+p[2],+p[1]-1,+p[0])>=depoisDeAmanha(); }
+// hoje e amanhã (para lista de espera)
+function isoHoje(){ const d=new Date(); return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2); }
+function isoAmanha(){ const d=new Date(); d.setDate(d.getDate()+1); return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2); }
 function iniciais(n){ const w=String(n||'?').trim().split(/\s+/); return ((w[0]||'')[0]||'?')+((w[1]||'')[0]||''); }
 
 // ---- MODAL bonito (substitui confirm) ----
@@ -559,13 +579,15 @@ function preencherDrv(el){
 let enviosAtuais = {};
 let solicitacoes = {};   // dt -> 'ANALISE' | 'APROVADA' | 'NEGADA'
 let historicoNS = [];    // [{data, reg}]
+let espera = {};         // dt -> ciclos (lista de espera)
 async function carregarEnviosAtuais(){
-  enviosAtuais = {}; solicitacoes = {}; historicoNS = [];
+  enviosAtuais = {}; solicitacoes = {}; historicoNS = []; espera = {};
   try{
     const r=await fetch(CFG.WORKER_URL+'/envios?placa='+encodeURIComponent(placaAtual)+'&t='+Date.now());
     const j=await r.json();
     (j.envios||[]).forEach(e=>{
       if(e.tipo==='hist'){ historicoNS.push({data:e.data, reg:e.reg||'', pun:e.pun||''}); }
+      else if(e.tipo==='espera'){ espera[e.data]=e.ciclos||''; }
       else if(e.tipo==='sol'){ solicitacoes[e.data]=e.st||'ANALISE'; }
       else{ enviosAtuais[e.data]= e.ciclos||''; }
     });
@@ -632,7 +654,51 @@ function montarEscolha(){
       validar();
     };
   });
-  validar(); trocarPasso('passoDisp');
+  validar(); atualizarUltimaHora(); trocarPasso('passoDisp');
+}
+
+// Card de disponibilidade de última hora (lista de espera): aparece quando
+// hoje e/ou amanhã já estão fora do prazo normal (não entram nos chips)
+function atualizarUltimaHora(){
+  const box=$('ultimaHora'); if(!box) return;
+  const hoje=isoHoje(), amanha=isoAmanha();
+  const min=dataMinima();
+  const forasPrazo=[];
+  [{iso:hoje,rot:'HOJE'},{iso:amanha,rot:'AMANHÃ'}].forEach(o=>{
+    const p=o.iso.split('-'); const d=new Date(+p[0],+p[1]-1,+p[2]);
+    if(d<min) forasPrazo.push(o); // está fora do prazo normal -> só como espera
+  });
+  if(!forasPrazo.length){ box.style.display='none'; box.innerHTML=''; return; }
+  box.style.display='';
+  box.innerHTML='<div class="uhTit">⏰ Perdeu o horário? Entre na lista de espera</div>'+
+    '<div class="uhTxt">Você pode se colocar à disposição para <b>hoje/amanhã</b>, mas <b>sem rota garantida e sem prioridade</b>. '+
+    'Fica aguardando: só é chamado se precisarmos de <b>ambulância</b>, <b>sacas</b> ou <b>substituir</b> alguém.</div>'+
+    '<div class="uhBtns">'+
+      forasPrazo.map(o=>{
+        const ja=espera[ddmmFromIso(o.iso)];
+        return '<button class="uhBtn'+(ja?' feito':'')+'" onclick="marcarEspera(\''+o.iso+'\')">'+
+          (ja?'✓ Na espera — '+o.rot:'Entrar na espera — '+o.rot)+'</button>';
+      }).join('')+
+    '</div>';
+}
+
+async function marcarEspera(iso){
+  const dtBr=ddmmFromIso(iso);
+  const p=iso.split('-'); const ehDom=new Date(+p[0],+p[1]-1,+p[2]).getDay()===0;
+  const ok=await modalConfirm({ titulo:'⏰ Lista de espera',
+    texto:'Você vai entrar na <b>lista de espera</b> para <b>'+dtBr.slice(0,5)+'</b>.<br><br>'+
+      '⚠️ <b>Não é rota garantida</b> e você <b>não tem prioridade</b>. Você fica aguardando e só é chamado se precisarmos de '+
+      '<b>ambulância</b>, <b>sacas</b> ou para <b>substituir</b> outro motorista.<br><br>Deseja entrar na espera?',
+    ok:'Entrar na espera', cancel:'Agora não' });
+  if(!ok) return;
+  espera[dtBr]='AM (8:00)'+(ehDom?'':' · PM (13:00)')+' · SD (15:00)'; // marca todos os ciclos disponíveis
+  // envia: um registro por ciclo do dia + marca LISTA DE ESPERA
+  const campos=[[CFG.ENTRY_MOTORISTA,atual.nome],[CFG.ENTRY_MODAL,modalDoMotorista()]].concat(camposData(iso));
+  CFG.CICLOS.forEach(c=>{ if(!(ehDom && c.semDomingo)) campos.push([c.entry,c.full]); });
+  campos.push([CFG.ENTRY_EXCLUIR, CFG.VALOR_ESPERA]);
+  postForm(campos);
+  atualizarUltimaHora();
+  toast('Você entrou na lista de espera para '+dtBr.slice(0,5)+'.');
 }
 function selDias(){ return [...document.querySelectorAll('.chip.dia.on')].map(e=>e.dataset.v); }
 
@@ -702,20 +768,22 @@ $('btEnviar').onclick=async function(){
 function renderEnvios(){
   const el=$('listaEnvios');
   const hoje=new Date(); hoje.setHours(0,0,0,0);
-  const datas={}; Object.keys(enviosAtuais).forEach(d=>datas[d]=1); Object.keys(solicitacoes).forEach(d=>datas[d]=1);
+  const datas={}; Object.keys(enviosAtuais).forEach(d=>datas[d]=1); Object.keys(solicitacoes).forEach(d=>datas[d]=1); Object.keys(espera).forEach(d=>datas[d]=1);
   const lista=Object.keys(datas)
     .filter(dt=>{ const p=dt.split('/'); return p.length===3 && new Date(+p[2],+p[1]-1,+p[0])>=hoje; })
     .sort((a,b)=>{ const pa=a.split('/'),pb=b.split('/'); return new Date(+pa[2],+pa[1]-1,+pa[0])-new Date(+pb[2],+pb[1]-1,+pb[0]); });
   el.innerHTML = lista.length ? lista.map(dt=>{
     const sol=solicitacoes[dt];
-    let acao;
-    if(sol==='APROVADA')      acao='<span class="badge2 apr">❌ No Show — punição aplicada</span>';
+    const ehEspera=espera[dt]!==undefined && enviosAtuais[dt]===undefined;
+    let acao, cic=enviosAtuais[dt]||espera[dt]||'—';
+    if(ehEspera)              acao='<span class="badge2 esp">⏰ Lista de espera</span>';
+    else if(sol==='APROVADA') acao='<span class="badge2 apr">❌ No Show — punição aplicada</span>';
     else if(sol==='NEGADA')   acao='<span class="badge2 neg">Solicitação negada</span>';
     else if(sol)              acao='<span class="badge2 ana">⏳ Em análise</span>';
-    else if(dataEditavel(dt)&&!foraDoHorario())
+    else if(podeExcluirDireto(dt))
                               acao='<button class="mini" onclick="removerDia(\''+dt+'\')">🗑 Excluir</button>';
     else                      acao='<button class="mini solic" onclick="solicitarExclusao(\''+dt+'\')">Solicitar</button>';
-    return '<div class="item" data-dt="'+dt+'"><span class="dt">'+dt.slice(0,5)+'</span><span class="cic">'+(enviosAtuais[dt]||'—')+'</span>'+acao+'</div>';
+    return '<div class="item" data-dt="'+dt+'"><span class="dt">'+dt.slice(0,5)+'</span><span class="cic">'+cic+'</span>'+acao+'</div>';
   }).join('') : '<div class="vazio">Nenhuma disponibilidade de hoje em diante.</div>';
 
   // histórico de No Show
@@ -736,11 +804,13 @@ async function consultar(){
   try{                                         // sincroniza em segundo plano
     const r=await fetch(CFG.WORKER_URL+'/envios?placa='+encodeURIComponent(placaAtual)+'&t='+Date.now());
     const j=await r.json();
-    const srv={}, srvSol={}, srvHist=[];
+    const srv={}, srvSol={}, srvHist=[], srvEsp={};
     (j.envios||[]).forEach(e=>{ if(e.tipo==='hist') srvHist.push({data:e.data, reg:e.reg||'', pun:e.pun||''});
+      else if(e.tipo==='espera') srvEsp[e.data]=e.ciclos||'';
       else if(e.tipo==='sol') srvSol[e.data]=e.st||'ANALISE'; else srv[e.data]=e.ciclos||''; });
     Object.keys(srv).forEach(dt=>{ if(enviosAtuais[dt]===undefined) enviosAtuais[dt]=srv[dt]; });
-    Object.keys(srvSol).forEach(dt=>{ solicitacoes[dt]=srvSol[dt]; }); // status do servidor manda
+    Object.keys(srvSol).forEach(dt=>{ solicitacoes[dt]=srvSol[dt]; });
+    Object.keys(srvEsp).forEach(dt=>{ if(espera[dt]===undefined) espera[dt]=srvEsp[dt]; });
     historicoNS = srvHist;
     renderEnvios();
   }catch(e){}
@@ -751,7 +821,7 @@ async function removerDia(dataBr){
   const ok=await modalConfirm({ titulo:'🗑 Excluir disponibilidade',
     texto:'Excluir sua disponibilidade de <b>'+dataBr.slice(0,5)+'</b>?', ok:'Excluir', cancel:'Cancelar', perigo:true });
   if(!ok) return;
-  if(foraDoHorario()||!dataEditavel(dataBr)){ solicitarExclusao(dataBr); return; }
+  if(!podeExcluirDireto(dataBr)){ solicitarExclusao(dataBr); return; }
   delete enviosAtuais[dataBr];                 // some da tela imediatamente
   renderEnvios();
   const campos=[[CFG.ENTRY_MOTORISTA,atual.nome],[CFG.ENTRY_MODAL,modalDoMotorista()]]
