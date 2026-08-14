@@ -96,6 +96,12 @@
   .chip:active{transform:scale(.96)}
   .chip.on{background:var(--grad);border-color:transparent;color:#0b0f14;box-shadow:0 4px 14px rgba(245,179,1,.25)}
   .chip.ciclo.on{background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff;box-shadow:0 4px 14px rgba(34,197,94,.25)}
+  .chip.temEnvio{position:relative;border-color:rgba(34,197,94,.55)}
+  .chip.temEnvio::after{content:"✓";position:absolute;top:-6px;right:-6px;width:18px;height:18px;
+    background:var(--ok);color:#04120a;border-radius:50%;font-size:.62rem;font-weight:900;
+    display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,.4)}
+  .jaSel{font-size:.7rem;color:#7ee0a0;margin-top:6px;line-height:1.4}
+  .jaSel b{color:#a7f3c4}
 
   /* SUCESSO */
   .msg{text-align:center;padding:26px 6px 8px}
@@ -198,6 +204,7 @@
       <div id="areaEscolha">
         <label>Dias — toque para marcar</label>
         <div class="chips" id="chipsDias"></div>
+        <div class="jaSel" id="jaMarcados" style="display:none"></div>
         <label>Ciclos — valem para todos os dias</label>
         <div class="chips" id="chipsCiclos"></div>
       </div>
@@ -329,7 +336,9 @@ $('btPlaca').onclick=async function(){
     const r=await fetch(CFG.WORKER_URL+'/cadastro?placa='+encodeURIComponent(placa)+'&t='+Date.now());
     const j=await r.json();
     if(!j.found){ erro.textContent='Placa não encontrada no cadastro.'; return; }
-    atual=j; placaAtual=placa; montarEscolha();
+    atual=j; placaAtual=placa;
+    await carregarEnviosAtuais();
+    montarEscolha();
   }catch(e){ erro.textContent='Falha de conexão. Tente de novo.'; }
   finally{ this.disabled=false; this.innerHTML='Continuar →'; }
 };
@@ -339,6 +348,18 @@ function preencherDrv(el){
   el.innerHTML='<div class="avatar">'+iniciais(atual.nome).toUpperCase()+'</div>'+
     '<div><div class="nome">'+(atual.nome||'(sem nome)')+'</div><div class="placa">'+placaAtual+'</div></div>';
 }
+
+// mapa dd/MM/yyyy -> ciclos já enviados (texto)
+let enviosAtuais = {};
+async function carregarEnviosAtuais(){
+  enviosAtuais = {};
+  try{
+    const r=await fetch(CFG.WORKER_URL+'/envios?placa='+encodeURIComponent(placaAtual)+'&t='+Date.now());
+    const j=await r.json();
+    (j.envios||[]).forEach(e=>{ enviosAtuais[e.data]= e.ciclos||''; });
+  }catch(e){}
+}
+function ddmmFromIso(iso){ const p=iso.split('-'); return p[2]+'/'+p[1]+'/'+p[0]; }
 
 function montarEscolha(){
   const cls=classificarStatus(atual.status); statusAtual=cls.tipo;
@@ -364,9 +385,21 @@ function montarEscolha(){
   for(let i=off;i<off+CFG.DIAS_FUTUROS;i++){
     const d=new Date(hoje); d.setDate(d.getDate()+i);
     const iso=d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2);
-    chips.push('<div class="chip dia" data-v="'+iso+'">'+DIAS_SEMANA[d.getDay()]+'<small>'+('0'+d.getDate()).slice(-2)+'/'+('0'+(d.getMonth()+1)).slice(-2)+'</small></div>');
+    const jaTem = enviosAtuais[ddmmFromIso(iso)] ? ' temEnvio' : '';
+    chips.push('<div class="chip dia'+jaTem+'" data-v="'+iso+'">'+DIAS_SEMANA[d.getDay()]+'<small>'+('0'+d.getDate()).slice(-2)+'/'+('0'+(d.getMonth()+1)).slice(-2)+'</small></div>');
   }
   $('chipsDias').innerHTML=chips.join('');
+
+  // resumo do que ele já marcou (dentro da janela mostrada)
+  const jaLista = Object.keys(enviosAtuais)
+    .filter(dt=>dataEditavel(dt))
+    .sort((a,b)=>{const pa=a.split('/'),pb=b.split('/');return new Date(+pa[2],+pa[1]-1,+pa[0])-new Date(+pb[2],+pb[1]-1,+pb[0]);});
+  const jaEl=$('jaMarcados');
+  if(jaLista.length){
+    jaEl.style.display='';
+    jaEl.innerHTML='✓ Você já marcou: '+jaLista.map(dt=>'<b>'+dt.slice(0,5)+'</b> ('+(enviosAtuais[dt]||'—')+')').join(', ')+'. Reenviar um desses <b>substitui</b>.';
+  }else{ jaEl.style.display='none'; jaEl.innerHTML=''; }
+
   $('chipsCiclos').innerHTML=CFG.CICLOS.map((c,i)=>'<div class="chip ciclo" data-i="'+i+'">'+c.label+'<small>'+c.hora+'</small></div>').join('');
   document.querySelectorAll('.chip').forEach(ch=>{ ch.onclick=function(){ this.classList.toggle('on'); validar(); }; });
   validar(); trocarPasso('passoDisp');
@@ -391,6 +424,15 @@ function postForm(campos){
 $('btEnviar').onclick=async function(){
   if(foraDoHorario()){ $('erroEnviar').textContent='Fora do horário.'; return; }
   const dias=selDias(), ciclos=selCiclos();
+  const ciclosTxt=ciclos.map(c=>c.full).join(' · ');
+
+  // confirmação de substituição: dias que já tinham registro
+  const subs = dias.map(iso=>ddmmFromIso(iso)).filter(dt=>enviosAtuais[dt]!==undefined);
+  if(subs.length){
+    const linhas = subs.map(dt=>'• '+dt.slice(0,5)+':  '+(enviosAtuais[dt]||'—')+'  →  '+ciclosTxt).join('\n');
+    if(!confirm('Você já tinha marcado '+subs.length+' desse(s) dia(s). O envio vai SUBSTITUIR:\n\n'+linhas+'\n\nConfirmar?')) return;
+  }
+
   this.disabled=true; this.textContent='Enviando…';
   for(const iso of dias){
     const [ano,mes,dia]=iso.split('-');
@@ -398,9 +440,11 @@ $('btEnviar').onclick=async function(){
       [CFG.ENTRY_DATA+'_year',ano],[CFG.ENTRY_DATA+'_month',String(+mes)],[CFG.ENTRY_DATA+'_day',String(+dia)]];
     ciclos.forEach(c=>campos.push([c.entry,c.full]));
     await postForm(campos);
+    enviosAtuais[ddmmFromIso(iso)]=ciclosTxt; // atualiza cache local
   }
   this.innerHTML='Enviar disponibilidade';
-  $('resumoOk').innerHTML='<b>'+dias.length+'</b> dia(s) enviado(s)<br>Ciclos: <b>'+ciclos.map(c=>c.label).join(', ')+'</b><br><small style="color:var(--mute)">Reenviar o mesmo dia substitui o anterior.</small>';
+  const acao = subs.length ? (subs.length===dias.length?'atualizado(s)':'enviado(s)/atualizado(s)') : 'enviado(s)';
+  $('resumoOk').innerHTML='<b>'+dias.length+'</b> dia(s) '+acao+'<br>Ciclos: <b>'+ciclos.map(c=>c.label).join(', ')+'</b><br><small style="color:var(--mute)">Reenviar o mesmo dia substitui o anterior.</small>';
   trocarPasso('passoOk');
 };
 
