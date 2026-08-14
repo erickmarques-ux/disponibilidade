@@ -447,7 +447,7 @@ async function carregarEnviosAtuais(){
     const r=await fetch(CFG.WORKER_URL+'/envios?placa='+encodeURIComponent(placaAtual)+'&t='+Date.now());
     const j=await r.json();
     (j.envios||[]).forEach(e=>{
-      if(e.tipo==='hist'){ historicoNS.push({data:e.data, reg:e.reg||''}); }
+      if(e.tipo==='hist'){ historicoNS.push({data:e.data, reg:e.reg||'', pun:e.pun||''}); }
       else if(e.tipo==='sol'){ solicitacoes[e.data]=e.st||'ANALISE'; }
       else{ enviosAtuais[e.data]= e.ciclos||''; }
     });
@@ -591,7 +591,7 @@ function renderEnvios(){
   el.innerHTML = lista.length ? lista.map(dt=>{
     const sol=solicitacoes[dt];
     let acao;
-    if(sol==='APROVADA')      acao='<span class="badge2 apr">❌ No Show — pausa 5 dias</span>';
+    if(sol==='APROVADA')      acao='<span class="badge2 apr">❌ No Show — punição aplicada</span>';
     else if(sol==='NEGADA')   acao='<span class="badge2 neg">Solicitação negada</span>';
     else if(sol)              acao='<span class="badge2 ana">⏳ Em análise</span>';
     else if(dataEditavel(dt)&&!foraDoHorario())
@@ -607,7 +607,7 @@ function renderEnvios(){
       return new Date(+pb[2],+pb[1]-1,+pb[0])-new Date(+pa[2],+pa[1]-1,+pa[0]); });
     h.style.display='';
     h.innerHTML='<div class="hTit">⚠️ Histórico de No Show <span class="hCnt">'+historicoNS.length+'</span></div>'+
-      ord.map(x=>'<div class="hItem"><span>'+x.data+'</span><span class="hReg">registrado em '+x.reg+'</span></div>').join('');
+      ord.map(x=>'<div class="hItem"><span>'+x.data+(x.pun?' <b style="color:#fca5a5">· '+x.pun+'</b>':'')+'</span><span class="hReg">registrado em '+x.reg+'</span></div>').join('');
   }else{ h.style.display='none'; h.innerHTML=''; }
 }
 
@@ -619,7 +619,7 @@ async function consultar(){
     const r=await fetch(CFG.WORKER_URL+'/envios?placa='+encodeURIComponent(placaAtual)+'&t='+Date.now());
     const j=await r.json();
     const srv={}, srvSol={}, srvHist=[];
-    (j.envios||[]).forEach(e=>{ if(e.tipo==='hist') srvHist.push({data:e.data, reg:e.reg||''});
+    (j.envios||[]).forEach(e=>{ if(e.tipo==='hist') srvHist.push({data:e.data, reg:e.reg||'', pun:e.pun||''});
       else if(e.tipo==='sol') srvSol[e.data]=e.st||'ANALISE'; else srv[e.data]=e.ciclos||''; });
     Object.keys(srv).forEach(dt=>{ if(enviosAtuais[dt]===undefined) enviosAtuais[dt]=srv[dt]; });
     Object.keys(srvSol).forEach(dt=>{ solicitacoes[dt]=srvSol[dt]; }); // status do servidor manda
@@ -647,7 +647,8 @@ async function removerDia(dataBr){
 async function solicitarExclusao(dataBr){
   const ok=await modalConfirm({ titulo:'⚠️ Fora do prazo de exclusão', perigo:true,
     texto:'Você vai <b>solicitar</b> a exclusão de <b>'+dataBr.slice(0,5)+'</b>. Se aprovada, será considerada '+
-      '<b class="warn">NO SHOW</b> e o veículo será pausado automaticamente por <b>5 dias</b>.<br><br>'+
+      '<b class="warn">NO SHOW</b> com punição por reincidência (janela de 45 dias): '+
+      '<b>1ª = 5 dias</b> de pausa · <b>2ª = 10 dias</b> · <b class="warn">3ª = remoção do grupo</b>.<br><br>'+
       'Fale com o responsável do grupo. 📦 Contamos com sua pontualidade, comprometimento e colaboração!',
     ok:'Enviar solicitação', cancel:'Cancelar' });
   if(!ok) return;
