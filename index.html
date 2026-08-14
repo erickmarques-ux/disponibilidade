@@ -120,6 +120,7 @@
   .item .lk{color:var(--dim);font-size:1rem}
   .mini{width:auto;margin:0;padding:8px 12px;font-size:.78rem;background:rgba(239,68,68,.12);
     color:#fca5a5;border:1px solid rgba(239,68,68,.4);border-radius:10px;font-weight:700;flex:0 0 auto}
+  .mini.solic{background:rgba(245,179,1,.14);color:var(--gold2);border-color:rgba(245,179,1,.45)}
   .vazio{text-align:center;color:var(--mute);padding:22px 8px;font-size:.88rem}
 
   /* INFORMATIVO — destaque */
@@ -285,7 +286,7 @@ const CFG = {
   FORM_RESPONSE_URL: 'https://docs.google.com/forms/d/e/1FAIpQLSd4E8RRBOBsgZD2AWsta88uCVW5m6hrV-17KXtrGCDDf-amkQ/formResponse',
   ENTRY_MOTORISTA: 'entry.567583292',
   ENTRY_MODAL:     'entry.69884041',
-  MODAL_VALOR:     'UTILITARIO FIXO',
+  MODAL_VALOR:     'UTILITÁRIO FIXO',
   ENTRY_DATA:      'entry.1223239437',
   CICLOS: [
     { label: 'AM', hora:'8:00',  full:'AM (8:00)',  entry: 'entry.1342764593' },
@@ -294,6 +295,7 @@ const CFG = {
   ],
   ENTRY_EXCLUIR: 'entry.1396339567',
   VALOR_EXCLUIR: 'EXCLUIR MEU NOME',
+  VALOR_SOLICITA: 'SOLICITAR EXCLUSAO (NO SHOW)',
   DIAS_FUTUROS: 7, HORA_ABRE: 21, HORA_FECHA: 18
 };
 const ST_BLOQUEIO = {
@@ -452,20 +454,27 @@ async function consultar(){
   trocarPasso('passoConsulta');
   preencherDrv($('drvConsulta'));
   const el=$('listaEnvios'); el.innerHTML='<div class="vazio">Carregando…</div>';
+  const hoje=new Date(); hoje.setHours(0,0,0,0);
   try{
     const r=await fetch(CFG.WORKER_URL+'/envios?placa='+encodeURIComponent(placaAtual)+'&t='+Date.now());
     const j=await r.json();
-    const env=(j.envios||[]).slice().sort((a,b)=>{ const pa=a.data.split('/'),pb=b.data.split('/');
-      return new Date(+pa[2],+pa[1]-1,+pa[0])-new Date(+pb[2],+pb[1]-1,+pb[0]); });
+    const env=(j.envios||[]).filter(e=>{ const p=String(e.data).split('/'); if(p.length<3) return false;
+        return new Date(+p[2],+p[1]-1,+p[0])>=hoje; })            // só HOJE em diante
+      .sort((a,b)=>{ const pa=a.data.split('/'),pb=b.data.split('/');
+        return new Date(+pa[2],+pa[1]-1,+pa[0])-new Date(+pb[2],+pb[1]-1,+pb[0]); });
     el.innerHTML= env.length ? env.map(e=>{ const pode=dataEditavel(e.data)&&!foraDoHorario();
         return '<div class="item"><span class="dt">'+e.data+'</span><span class="cic">'+(e.ciclos||'—')+'</span>'+
-          (pode?'<button class="mini" onclick="removerDia(\''+e.data+'\')">🗑</button>':'<span class="lk">🔒</span>')+'</div>';
-      }).join('') : '<div class="vazio">Nenhum envio encontrado.</div>';
+          (pode
+            ? '<button class="mini" onclick="removerDia(\''+e.data+'\')">🗑 Excluir</button>'
+            : '<button class="mini solic" onclick="solicitarExclusao(\''+e.data+'\')">Solicitar</button>')+'</div>';
+      }).join('') : '<div class="vazio">Nenhuma disponibilidade de hoje em diante.</div>';
   }catch(e){ el.innerHTML='<div class="vazio">Falha ao buscar. Tente de novo.</div>'; }
 }
+
+// exclusão dentro do prazo: some na hora
 async function removerDia(dataBr){
   if(!confirm('Excluir sua disponibilidade de '+dataBr+'?')) return;
-  if(foraDoHorario()||!dataEditavel(dataBr)){ alert('Prazo encerrado para este dia.'); return; }
+  if(foraDoHorario()||!dataEditavel(dataBr)){ solicitarExclusao(dataBr); return; }
   const p=dataBr.split('/');
   const campos=[[CFG.ENTRY_MOTORISTA,atual.nome],[CFG.ENTRY_MODAL,CFG.MODAL_VALOR],
     [CFG.ENTRY_DATA+'_year',p[2]],[CFG.ENTRY_DATA+'_month',String(+p[1])],[CFG.ENTRY_DATA+'_day',String(+p[0])],
@@ -473,6 +482,21 @@ async function removerDia(dataBr){
   await postForm(campos);
   $('listaEnvios').innerHTML='<div class="vazio">🗑 Removendo <b>'+dataBr+'</b>… aguarde.</div>';
   setTimeout(consultar,6000);
+}
+
+// fora do prazo: sobe SOLICITAÇÃO (não apaga sozinho) com aviso de No Show
+async function solicitarExclusao(dataBr){
+  const ok=confirm('⚠️ ATENÇÃO — Fora do prazo de exclusão.\n\n'+
+    'Você vai SOLICITAR a exclusão de '+dataBr+'. Se aprovada, será considerada NO SHOW '+
+    'e o veículo será pausado automaticamente por 5 dias.\n\nDeseja enviar a solicitação?');
+  if(!ok) return;
+  const p=dataBr.split('/');
+  const campos=[[CFG.ENTRY_MOTORISTA,atual.nome],[CFG.ENTRY_MODAL,CFG.MODAL_VALOR],
+    [CFG.ENTRY_DATA+'_year',p[2]],[CFG.ENTRY_DATA+'_month',String(+p[1])],[CFG.ENTRY_DATA+'_day',String(+p[0])],
+    [CFG.ENTRY_EXCLUIR,CFG.VALOR_SOLICITA]];
+  await postForm(campos);
+  alert('Solicitação enviada para '+dataBr+'. Aguarde a análise do dispatcher.');
+  consultar();
 }
 $('btConsultar').onclick=consultar;
 $('btVerEnvios').onclick=consultar;
