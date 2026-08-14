@@ -515,7 +515,8 @@ const CFG = {
   VALOR_SOLICITA: 'SOLICITAR EXCLUSAO (NO SHOW)',
   VALOR_ESPERA: 'LISTA DE ESPERA',
   DIAS_FUTUROS: 7, HORA_ABRE: 21, HORA_FECHA: 18,
-  HORA_LIMITE_ESPERA: 15   // espera de um dia fecha às 15h daquele dia
+  HORA_LIMITE_ESPERA: 15,  // espera de um dia fecha às 15h daquele dia
+  HORA_LIMITE_SOLIC_HOJE: 10 // solicitar exclusão do DIA ATUAL só até as 10h
 };
 const ST_BLOQUEIO = {
   CHURN: 'Seu cadastro está em churn e não é possível enviar disponibilidade. Procure o dispatcher.',
@@ -560,6 +561,17 @@ function podeEspera(iso){ return estadoDoDia(dataDeIso(iso))==='ESPERA'; }
 // exclusão direta (sem solicitar): D+2 em diante
 function depoisDeAmanha(){ const d=new Date(); d.setHours(0,0,0,0); d.setDate(d.getDate()+2); return d; }
 function podeExcluirDireto(br){ if(String(br).split('/').length<3) return false; return d0(dataDeBr(br))>=depoisDeAmanha(); }
+// pode SOLICITAR exclusão? (só faz sentido para hoje e amanhã, que não excluem direto)
+// - amanhã (D+1): sempre
+// - hoje (D+0): só até HORA_LIMITE_SOLIC_HOJE
+function podeSolicitar(br){
+  const p=String(br).split('/'); if(p.length<3) return false;
+  const alvo=d0(dataDeBr(br)); const hojeZ=d0(new Date());
+  const diff=Math.round((alvo-hojeZ)/86400000);
+  if(diff<0) return false;                 // passado
+  if(diff===0) return new Date().getHours() < CFG.HORA_LIMITE_SOLIC_HOJE; // hoje: até 10h
+  return true;                             // amanhã em diante (dentro do fluxo de solicitação)
+}
 function iniciais(n){ const w=String(n||'?').trim().split(/\s+/); return ((w[0]||'')[0]||'?')+((w[1]||'')[0]||''); }
 
 // ---- MODAL bonito (substitui confirm) ----
@@ -716,12 +728,14 @@ function montarEscolha(){
 // Card de lista de espera: mostra HOJE/AMANHÃ apenas quando estão no estado ESPERA
 function atualizarUltimaHora(){
   const box=$('ultimaHora'); if(!box) return;
-  const cand=[{iso:isoHoje(),rot:'HOJE'},{iso:isoAmanha(),rot:'AMANHÃ'}].filter(o=>podeEspera(o.iso));
+  const cand=[{iso:isoHoje(),rot:'HOJE'},{iso:isoAmanha(),rot:'AMANHÃ'}]
+    .filter(o=>podeEspera(o.iso))
+    .filter(o=>enviosAtuais[ddmmFromIso(o.iso)]===undefined); // já marcou no prazo? não oferece espera
   if(!cand.length){ box.style.display='none'; box.innerHTML=''; return; }
   box.style.display='';
   box.innerHTML='<div class="uhTit">⏰ Perdeu o horário? Entre na lista de espera</div>'+
     '<div class="uhTxt">Você pode se colocar à disposição, mas <b>sem prioridade</b> (quem marcou no prazo é atendido primeiro). '+
-    'Fica aguardando: só é chamado se precisarmos de <b>ambulância</b>, <b>sacas</b> ou <b>substituir</b> alguém. '+
+    'Fica aguardando: só é chamado se precisarmos de <b>ambulância</b> ou <b>substituir</b> alguém. '+
     '<br><small style="color:var(--mute)">A espera de cada dia fecha às '+CFG.HORA_LIMITE_ESPERA+'h.</small></div>'+
     cand.map(o=>{
       const dtBr=ddmmFromIso(o.iso);
@@ -755,7 +769,7 @@ async function marcarEspera(iso){
   const ok=await modalConfirm({ titulo:'⏰ Lista de espera',
     texto:'Você vai entrar na <b>lista de espera</b> para <b>'+dtBr.slice(0,5)+'</b> nos ciclos <b>'+escolhidos.map(c=>c.label).join(', ')+'</b>.<br><br>'+
       '⚠️ Você entra <b>sem prioridade</b> — quem marcou no prazo é atendido primeiro. Só é chamado se precisarmos de '+
-      '<b>ambulância</b>, <b>sacas</b> ou para <b>substituir</b> alguém.<br><br>Confirmar?',
+      '<b>ambulância</b> ou para <b>substituir</b> alguém.<br><br>Confirmar?',
     ok:'Confirmar espera', cancel:'Agora não' });
   if(!ok) return;
   espera[dtBr]=escolhidos.map(c=>c.full).join(' · ');
@@ -863,7 +877,9 @@ function renderEnvios(){
     else if(sol)              acao='<span class="badge2 ana">⏳ Em análise</span>';
     else if(podeExcluirDireto(dt))
                               acao='<button class="mini" onclick="removerDia(\''+dt+'\')">🗑 Excluir</button>';
-    else                      acao='<button class="mini solic" onclick="solicitarExclusao(\''+dt+'\')">Solicitar</button>';
+    else if(podeSolicitar(dt))
+                              acao='<button class="mini solic" onclick="solicitarExclusao(\''+dt+'\')">Solicitar</button>';
+    else                      acao='<span class="badge2 neg">🔒 Prazo encerrado</span>';
     return '<div class="item" data-dt="'+dt+'"><span class="dt">'+dt.slice(0,5)+'</span><span class="cic">'+cic+'</span>'+acao+'</div>';
   }).join('') : '<div class="vazio">Nenhuma disponibilidade de hoje em diante.</div>';
 
@@ -894,6 +910,7 @@ async function consultar(){
     Object.keys(srvEsp).forEach(dt=>{ if(espera[dt]===undefined) espera[dt]=srvEsp[dt]; });
     historicoNS = srvHist;
     renderEnvios();
+    atualizarUltimaHora(); // se descobrimos que já marcou, remove o dia da espera
   }catch(e){}
 }
 
@@ -914,6 +931,15 @@ async function removerDia(dataBr){
 
 // fora do prazo: SOLICITAÇÃO com aviso de No Show
 async function solicitarExclusao(dataBr){
+  if(!podeSolicitar(dataBr)){
+    await modalConfirm({ titulo:'🔒 Prazo encerrado', perigo:true,
+      texto:'A solicitação de exclusão do <b>dia de hoje</b> só é permitida até as <b>'+CFG.HORA_LIMITE_SOLIC_HOJE+'h</b>. '+
+        'Depois desse horário não é possível solicitar — se não comparecer, será considerado <b class="warn">No Show</b>.<br><br>'+
+        'Fale com o responsável do grupo.',
+      ok:'Entendi', cancel:'Fechar' });
+    renderEnvios();
+    return;
+  }
   const ok=await modalConfirm({ titulo:'⚠️ Fora do prazo de exclusão', perigo:true,
     texto:'Você vai <b>solicitar</b> a exclusão de <b>'+dataBr.slice(0,5)+'</b>. Se aprovada, será considerada '+
       '<b class="warn">NO SHOW</b> com punição por reincidência (janela de 45 dias): '+
