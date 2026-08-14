@@ -96,6 +96,7 @@
   .chip:active{transform:scale(.96)}
   .chip.on{background:var(--grad);border-color:transparent;color:#0b0f14;box-shadow:0 4px 14px rgba(245,179,1,.25)}
   .chip.ciclo.on{background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff;box-shadow:0 4px 14px rgba(34,197,94,.25)}
+  .chip.off{opacity:.35;cursor:not-allowed;text-decoration:line-through}
   .chip.temEnvio{position:relative;border-color:rgba(34,197,94,.55)}
   .chip.temEnvio::after{content:"✓";position:absolute;top:-6px;right:-6px;width:18px;height:18px;
     background:var(--ok);color:#04120a;border-radius:50%;font-size:.62rem;font-weight:900;
@@ -343,7 +344,7 @@ const CFG = {
   ENTRY_DATA:      'entry.1223239437',
   CICLOS: [
     { label: 'AM', hora:'8:00',  full:'AM (8:00)',  entry: 'entry.1342764593' },
-    { label: 'PM', hora:'13:00', full:'PM (13:00)', entry: 'entry.1297754750' },
+    { label: 'PM', hora:'13:00', full:'PM (13:00)', entry: 'entry.1297754750', semDomingo:true },
     { label: 'SD', hora:'15:00', full:'SD (15:00)', entry: 'entry.707211593' }
   ],
   ENTRY_EXCLUIR: 'entry.1396339567',
@@ -505,10 +506,32 @@ function montarEscolha(){
   }else{ jaEl.style.display='none'; jaEl.innerHTML=''; }
 
   $('chipsCiclos').innerHTML=CFG.CICLOS.map((c,i)=>'<div class="chip ciclo" data-i="'+i+'">'+c.label+'<small>'+c.hora+'</small></div>').join('');
-  document.querySelectorAll('.chip').forEach(ch=>{ ch.onclick=function(){ this.classList.toggle('on'); validar(); }; });
+  document.querySelectorAll('.chip').forEach(ch=>{
+    ch.onclick=function(){
+      if(this.classList.contains('off')){ toast('PM não roda aos domingos.', true); return; }
+      this.classList.toggle('on');
+      ajustarCiclosPorDomingo();
+      validar();
+    };
+  });
   validar(); trocarPasso('passoDisp');
 }
 function selDias(){ return [...document.querySelectorAll('.chip.dia.on')].map(e=>e.dataset.v); }
+
+// domingo selecionado -> desativa (e desmarca) os ciclos com semDomingo (PM)
+function temDomingoSelecionado(){
+  return selDias().some(iso=>{ const p=iso.split('-'); return new Date(+p[0],+p[1]-1,+p[2]).getDay()===0; });
+}
+function ajustarCiclosPorDomingo(){
+  const dom=temDomingoSelecionado();
+  document.querySelectorAll('.chip.ciclo').forEach(ch=>{
+    const c=CFG.CICLOS[+ch.dataset.i];
+    if(c.semDomingo){
+      ch.classList.toggle('off', dom);
+      if(dom && ch.classList.contains('on')){ ch.classList.remove('on'); toast('PM não roda aos domingos — desmarcado.', true); }
+    }
+  });
+}
 function selCiclos(){ return [...document.querySelectorAll('.chip.ciclo.on')].map(e=>CFG.CICLOS[+e.dataset.i]); }
 function validar(){
   const okIno=statusAtual!=='INOPERANTE'||$('ckInoperante').checked;
@@ -542,10 +565,14 @@ $('btEnviar').onclick=async function(){
 
   this.disabled=true; this.textContent='Enviando…';
   for(const iso of dias){
+    const p=iso.split('-');
+    const ehDomingo = new Date(+p[0],+p[1]-1,+p[2]).getDay()===0;
+    const ciclosDoDia = ciclos.filter(c=>!(ehDomingo && c.semDomingo));
+    if(!ciclosDoDia.length) continue;                        // domingo só com PM: pula
     const campos=[[CFG.ENTRY_MOTORISTA,atual.nome],[CFG.ENTRY_MODAL,modalDoMotorista()]].concat(camposData(iso));
-    ciclos.forEach(c=>campos.push([c.entry,c.full]));
+    ciclosDoDia.forEach(c=>campos.push([c.entry,c.full]));
     postForm(campos);                          // dispara em background (não espera)
-    enviosAtuais[ddmmFromIso(iso)]=ciclosTxt;  // atualiza estado local NA HORA
+    enviosAtuais[ddmmFromIso(iso)]=ciclosDoDia.map(c=>c.full).join(' · ');
   }
   this.disabled=false; this.innerHTML='Enviar disponibilidade';
   const acao = subs.length ? 'atualizado(s)' : 'enviado(s)';
