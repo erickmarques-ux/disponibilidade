@@ -122,6 +122,31 @@
     color:#fca5a5;border:1px solid rgba(239,68,68,.4);border-radius:10px;font-weight:700;flex:0 0 auto}
   .mini.solic{background:rgba(245,179,1,.14);color:var(--gold2);border-color:rgba(245,179,1,.45)}
   .vazio{text-align:center;color:var(--mute);padding:22px 8px;font-size:.88rem}
+  /* MODAL de confirmação */
+  .modal{position:fixed;inset:0;z-index:80;display:none;align-items:center;justify-content:center;padding:20px}
+  .modal.on{display:flex}
+  .modal .bg{position:absolute;inset:0;background:rgba(0,0,0,.65);backdrop-filter:blur(3px)}
+  .modal .box{position:relative;width:100%;max-width:400px;background:var(--bg2);
+    border:1px solid var(--line);border-top:3px solid var(--gold);border-radius:18px;padding:20px;
+    animation:mup .22s ease}
+  @keyframes mup{from{transform:translateY(14px);opacity:0}to{transform:translateY(0);opacity:1}}
+  .modal .mt{font-size:1.05rem;font-weight:800;margin-bottom:8px;display:flex;gap:8px;align-items:center}
+  .modal .mb{font-size:.9rem;line-height:1.55;color:var(--ink)}
+  .modal .mb .warn{color:#fca5a5}
+  .modal .mb .diff{background:var(--card);border:1px solid var(--line);border-radius:10px;
+    padding:10px;margin-top:10px;font-size:.84rem}
+  .modal .acts{display:flex;gap:10px;margin-top:18px}
+  .modal .acts button{margin:0}
+  .modal .mcancel{background:var(--card2);color:var(--ink);border:1px solid var(--line)}
+  .modal.perigo .box{border-top-color:var(--alert)}
+  .modal .mok.perigo{background:linear-gradient(135deg,#ef4444,#dc2626);color:#fff;box-shadow:none}
+  /* TOAST */
+  .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);z-index:90;
+    background:var(--card);border:1px solid var(--line);border-left:3px solid var(--ok);
+    color:var(--ink);padding:12px 16px;border-radius:12px;font-size:.88rem;font-weight:600;
+    box-shadow:0 8px 24px rgba(0,0,0,.5);opacity:0;pointer-events:none;transition:.25s;max-width:90%}
+  .toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+  .toast.err{border-left-color:var(--alert)}
 
   /* INFORMATIVO — destaque */
   .infoCta{margin-top:20px;border-radius:16px;padding:15px;cursor:pointer;
@@ -280,6 +305,20 @@
   </div>
 </div>
 
+<!-- MODAL de confirmação -->
+<div class="modal" id="modal">
+  <div class="bg" id="modalBg"></div>
+  <div class="box">
+    <div class="mt" id="modalTitulo"></div>
+    <div class="mb" id="modalTexto"></div>
+    <div class="acts">
+      <button class="mcancel" id="modalCancel">Cancelar</button>
+      <button class="btp mok" id="modalOk">Confirmar</button>
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
 <script>
 const CFG = {
   WORKER_URL: 'https://worker-kangu.erick-marques.workers.dev',
@@ -314,6 +353,30 @@ function primeiroOffset(){ return (new Date().getHours()>=CFG.HORA_ABRE)?2:1; }
 function dataMinima(){ const d=new Date(); d.setHours(0,0,0,0); d.setDate(d.getDate()+primeiroOffset()); return d; }
 function dataEditavel(br){ const p=String(br).split('/'); if(p.length<3) return false; return new Date(+p[2],+p[1]-1,+p[0])>=dataMinima(); }
 function iniciais(n){ const w=String(n||'?').trim().split(/\s+/); return ((w[0]||'')[0]||'?')+((w[1]||'')[0]||''); }
+
+// ---- MODAL bonito (substitui confirm) ----
+function modalConfirm(opt){
+  return new Promise(res=>{
+    const m=$('modal');
+    $('modalTitulo').innerHTML=opt.titulo||'Confirmar';
+    $('modalTexto').innerHTML=opt.texto||'';
+    $('modalOk').textContent=opt.ok||'Confirmar';
+    $('modalCancel').textContent=opt.cancel||'Cancelar';
+    m.classList.toggle('perigo', !!opt.perigo);
+    $('modalOk').classList.toggle('perigo', !!opt.perigo);
+    m.classList.add('on');
+    const fim=v=>{ m.classList.remove('on'); $('modalOk').onclick=null; $('modalCancel').onclick=null; $('modalBg').onclick=null; res(v); };
+    $('modalOk').onclick=()=>fim(true);
+    $('modalCancel').onclick=()=>fim(false);
+    $('modalBg').onclick=()=>fim(false);
+  });
+}
+// ---- TOAST ----
+let toastT=null;
+function toast(msg, erro){
+  const t=$('toast'); t.innerHTML=msg; t.className='toast'+(erro?' err':'')+' on';
+  clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove('on'), 3200);
+}
 
 function normStatus(s){ return String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toUpperCase(); }
 // escolhe a opção de MODAL do form a partir do veículo do cadastro
@@ -444,75 +507,91 @@ function postForm(campos){
 }
 
 $('btEnviar').onclick=async function(){
-  if(foraDoHorario()){ $('erroEnviar').textContent='Fora do horário.'; return; }
+  if(foraDoHorario()){ toast('Fora do horário de envio.', true); return; }
   const dias=selDias(), ciclos=selCiclos();
   const ciclosTxt=ciclos.map(c=>c.full).join(' · ');
 
-  // confirmação de substituição: dias que já tinham registro
+  // confirmação de substituição (modal bonito)
   const subs = dias.map(iso=>ddmmFromIso(iso)).filter(dt=>enviosAtuais[dt]!==undefined);
   if(subs.length){
-    const linhas = subs.map(dt=>'• '+dt.slice(0,5)+':  '+(enviosAtuais[dt]||'—')+'  →  '+ciclosTxt).join('\n');
-    if(!confirm('Você já tinha marcado '+subs.length+' desse(s) dia(s). O envio vai SUBSTITUIR:\n\n'+linhas+'\n\nConfirmar?')) return;
+    const linhas = subs.map(dt=>'<div>• <b>'+dt.slice(0,5)+'</b>: '+(enviosAtuais[dt]||'—')+' → '+ciclosTxt+'</div>').join('');
+    const ok=await modalConfirm({ titulo:'🔄 Substituir disponibilidade',
+      texto:'Você já tinha marcado '+subs.length+' desse(s) dia(s). O envio vai substituir:<div class="diff">'+linhas+'</div>',
+      ok:'Substituir', cancel:'Cancelar' });
+    if(!ok) return;
   }
 
   this.disabled=true; this.textContent='Enviando…';
   for(const iso of dias){
     const campos=[[CFG.ENTRY_MOTORISTA,atual.nome],[CFG.ENTRY_MODAL,modalDoMotorista()]].concat(camposData(iso));
     ciclos.forEach(c=>campos.push([c.entry,c.full]));
-    await postForm(campos);
-    enviosAtuais[ddmmFromIso(iso)]=ciclosTxt; // atualiza cache local
+    postForm(campos);                          // dispara em background (não espera)
+    enviosAtuais[ddmmFromIso(iso)]=ciclosTxt;  // atualiza estado local NA HORA
   }
-  this.innerHTML='Enviar disponibilidade';
-  const acao = subs.length ? (subs.length===dias.length?'atualizado(s)':'enviado(s)/atualizado(s)') : 'enviado(s)';
-  $('resumoOk').innerHTML='<b>'+dias.length+'</b> dia(s) '+acao+'<br>Ciclos: <b>'+ciclos.map(c=>c.label).join(', ')+'</b><br><small style="color:var(--mute)">Reenviar o mesmo dia substitui o anterior.</small>';
+  this.disabled=false; this.innerHTML='Enviar disponibilidade';
+  const acao = subs.length ? 'atualizado(s)' : 'enviado(s)';
+  $('resumoOk').innerHTML='<b>'+dias.length+'</b> dia(s) '+acao+'<br>Ciclos: <b>'+ciclos.map(c=>c.label).join(', ')+'</b>';
   trocarPasso('passoOk');
 };
+
+// renderiza a lista a partir do estado local (instantâneo)
+function renderEnvios(){
+  const el=$('listaEnvios');
+  const hoje=new Date(); hoje.setHours(0,0,0,0);
+  const lista=Object.keys(enviosAtuais)
+    .filter(dt=>{ const p=dt.split('/'); return p.length===3 && new Date(+p[2],+p[1]-1,+p[0])>=hoje; })
+    .sort((a,b)=>{ const pa=a.split('/'),pb=b.split('/'); return new Date(+pa[2],+pa[1]-1,+pa[0])-new Date(+pb[2],+pb[1]-1,+pb[0]); });
+  el.innerHTML = lista.length ? lista.map(dt=>{
+    const pode=dataEditavel(dt)&&!foraDoHorario();
+    return '<div class="item" data-dt="'+dt+'"><span class="dt">'+dt.slice(0,5)+'</span><span class="cic">'+(enviosAtuais[dt]||'—')+'</span>'+
+      (pode
+        ? '<button class="mini" onclick="removerDia(\''+dt+'\')">🗑 Excluir</button>'
+        : '<button class="mini solic" onclick="solicitarExclusao(\''+dt+'\')">Solicitar</button>')+'</div>';
+  }).join('') : '<div class="vazio">Nenhuma disponibilidade de hoje em diante.</div>';
+}
 
 async function consultar(){
   trocarPasso('passoConsulta');
   preencherDrv($('drvConsulta'));
-  const el=$('listaEnvios'); el.innerHTML='<div class="vazio">Carregando…</div>';
-  const hoje=new Date(); hoje.setHours(0,0,0,0);
-  try{
+  renderEnvios();                              // mostra o que já temos, na hora
+  try{                                         // sincroniza em segundo plano
     const r=await fetch(CFG.WORKER_URL+'/envios?placa='+encodeURIComponent(placaAtual)+'&t='+Date.now());
     const j=await r.json();
-    const env=(j.envios||[]).filter(e=>{ const p=String(e.data).split('/'); if(p.length<3) return false;
-        return new Date(+p[2],+p[1]-1,+p[0])>=hoje; })            // só HOJE em diante
-      .sort((a,b)=>{ const pa=a.data.split('/'),pb=b.data.split('/');
-        return new Date(+pa[2],+pa[1]-1,+pa[0])-new Date(+pb[2],+pb[1]-1,+pb[0]); });
-    el.innerHTML= env.length ? env.map(e=>{ const pode=dataEditavel(e.data)&&!foraDoHorario();
-        return '<div class="item"><span class="dt">'+e.data+'</span><span class="cic">'+(e.ciclos||'—')+'</span>'+
-          (pode
-            ? '<button class="mini" onclick="removerDia(\''+e.data+'\')">🗑 Excluir</button>'
-            : '<button class="mini solic" onclick="solicitarExclusao(\''+e.data+'\')">Solicitar</button>')+'</div>';
-      }).join('') : '<div class="vazio">Nenhuma disponibilidade de hoje em diante.</div>';
-  }catch(e){ el.innerHTML='<div class="vazio">Falha ao buscar. Tente de novo.</div>'; }
+    const srv={}; (j.envios||[]).forEach(e=>{ srv[e.data]=e.ciclos||''; });
+    // funde: mantém o que o usuário acabou de mexer, completa com o servidor
+    Object.keys(srv).forEach(dt=>{ if(enviosAtuais[dt]===undefined) enviosAtuais[dt]=srv[dt]; });
+    renderEnvios();
+  }catch(e){}
 }
 
-// exclusão dentro do prazo: some na hora
+// exclusão dentro do prazo: some NA HORA
 async function removerDia(dataBr){
-  if(!confirm('Excluir sua disponibilidade de '+dataBr+'?')) return;
+  const ok=await modalConfirm({ titulo:'🗑 Excluir disponibilidade',
+    texto:'Excluir sua disponibilidade de <b>'+dataBr.slice(0,5)+'</b>?', ok:'Excluir', cancel:'Cancelar', perigo:true });
+  if(!ok) return;
   if(foraDoHorario()||!dataEditavel(dataBr)){ solicitarExclusao(dataBr); return; }
+  delete enviosAtuais[dataBr];                 // some da tela imediatamente
+  renderEnvios();
   const campos=[[CFG.ENTRY_MOTORISTA,atual.nome],[CFG.ENTRY_MODAL,modalDoMotorista()]]
     .concat(camposData(isoFromBr(dataBr)))
     .concat([[CFG.ENTRY_EXCLUIR,CFG.VALOR_EXCLUIR]]);
-  await postForm(campos);
-  $('listaEnvios').innerHTML='<div class="vazio">🗑 Removendo <b>'+dataBr+'</b>… aguarde.</div>';
-  setTimeout(consultar,6000);
+  postForm(campos);                            // background
+  toast('Disponibilidade de '+dataBr.slice(0,5)+' excluída.');
 }
 
-// fora do prazo: sobe SOLICITAÇÃO (não apaga sozinho) com aviso de No Show
+// fora do prazo: SOLICITAÇÃO com aviso de No Show
 async function solicitarExclusao(dataBr){
-  const ok=confirm('⚠️ ATENÇÃO — Fora do prazo de exclusão.\n\n'+
-    'Você vai SOLICITAR a exclusão de '+dataBr+'. Se aprovada, será considerada NO SHOW '+
-    'e o veículo será pausado automaticamente por 5 dias.\n\nDeseja enviar a solicitação?');
+  const ok=await modalConfirm({ titulo:'⚠️ Fora do prazo de exclusão', perigo:true,
+    texto:'Você vai <b>solicitar</b> a exclusão de <b>'+dataBr.slice(0,5)+'</b>. Se aprovada, será considerada '+
+      '<b class="warn">NO SHOW</b> e o veículo será pausado automaticamente por <b>5 dias</b>.<br><br>'+
+      'Fale com o responsável do grupo. 📦 Contamos com sua pontualidade, comprometimento e colaboração!',
+    ok:'Enviar solicitação', cancel:'Cancelar' });
   if(!ok) return;
   const campos=[[CFG.ENTRY_MOTORISTA,atual.nome],[CFG.ENTRY_MODAL,modalDoMotorista()]]
     .concat(camposData(isoFromBr(dataBr)))
     .concat([[CFG.ENTRY_EXCLUIR,CFG.VALOR_SOLICITA]]);
-  await postForm(campos);
-  alert('Solicitação enviada para '+dataBr+'. Aguarde a análise do dispatcher.');
-  consultar();
+  postForm(campos);
+  toast('Solicitação enviada. Aguarde a análise do dispatcher.');
 }
 $('btConsultar').onclick=consultar;
 $('btVerEnvios').onclick=consultar;
