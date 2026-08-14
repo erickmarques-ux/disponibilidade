@@ -283,10 +283,11 @@
 <script>
 const CFG = {
   WORKER_URL: 'https://worker-kangu.erick-marques.workers.dev',
-  FORM_RESPONSE_URL: 'https://docs.google.com/forms/d/e/1FAIpQLSd4E8RRBOBsgZD2AWsta88uCVW5m6hrV-17KXtrGCDDf-amkQ/formResponse',
+  FORM_RESPONSE_URL: 'https://docs.google.com/forms/d/e/1FAIpQLSe8WcVK_Kij8_Xif3BvFgv7j_s0fDSqit3dB5UMZlA8zjqSMw/formResponse',
   ENTRY_MOTORISTA: 'entry.567583292',
   ENTRY_MODAL:     'entry.69884041',
-  MODAL_VALOR:     'UTILITÁRIO FIXO',
+  MODAL_VALOR:     'UTILITARIO FIXO',     // padrão se não casar o veículo
+  MODAL_OPCOES:    ['UTILITARIO FIXO','VUC FIXO','VAN FIXO'],  // opções EXATAS do form
   ENTRY_DATA:      'entry.1223239437',
   CICLOS: [
     { label: 'AM', hora:'8:00',  full:'AM (8:00)',  entry: 'entry.1342764593' },
@@ -315,6 +316,14 @@ function dataEditavel(br){ const p=String(br).split('/'); if(p.length<3) return 
 function iniciais(n){ const w=String(n||'?').trim().split(/\s+/); return ((w[0]||'')[0]||'?')+((w[1]||'')[0]||''); }
 
 function normStatus(s){ return String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toUpperCase(); }
+// escolhe a opção de MODAL do form a partir do veículo do cadastro
+function modalDoMotorista(){
+  const v = normStatus(atual.veiculo||'');
+  if(v.indexOf('VUC')>-1) return 'VUC FIXO';
+  if(v.indexOf('VAN')>-1) return 'VAN FIXO';
+  if(v.indexOf('UTILIT')>-1) return 'UTILITARIO FIXO';
+  return CFG.MODAL_VALOR; // padrão
+}
 function classificarStatus(s){ const n=normStatus(s);
   if(n.indexOf('CHURN')>-1) return {tipo:'BLOQUEIO',msg:ST_BLOQUEIO.CHURN};
   if(n.indexOf('PAUSA')>-1) return {tipo:'BLOQUEIO',msg:ST_BLOQUEIO.PAUSADO};
@@ -361,6 +370,17 @@ async function carregarEnviosAtuais(){
     (j.envios||[]).forEach(e=>{ enviosAtuais[e.data]= e.ciclos||''; });
   }catch(e){}
 }
+// monta a data nos dois formatos aceitos (texto único E year/month/day)
+function camposData(iso){
+  const [ano,mes,dia]=iso.split('-');
+  return [
+    [CFG.ENTRY_DATA, iso],                       // caso a pergunta seja texto
+    [CFG.ENTRY_DATA+'_year', ano],               // caso seja tipo data
+    [CFG.ENTRY_DATA+'_month', String(+mes)],
+    [CFG.ENTRY_DATA+'_day', String(+dia)]
+  ];
+}
+function isoFromBr(br){ const p=br.split('/'); return p[2]+'-'+('0'+(+p[1])).slice(-2)+'-'+('0'+(+p[0])).slice(-2); }
 function ddmmFromIso(iso){ const p=iso.split('-'); return p[2]+'/'+p[1]+'/'+p[0]; }
 
 function montarEscolha(){
@@ -437,9 +457,7 @@ $('btEnviar').onclick=async function(){
 
   this.disabled=true; this.textContent='Enviando…';
   for(const iso of dias){
-    const [ano,mes,dia]=iso.split('-');
-    const campos=[[CFG.ENTRY_MOTORISTA,atual.nome],[CFG.ENTRY_MODAL,CFG.MODAL_VALOR],
-      [CFG.ENTRY_DATA+'_year',ano],[CFG.ENTRY_DATA+'_month',String(+mes)],[CFG.ENTRY_DATA+'_day',String(+dia)]];
+    const campos=[[CFG.ENTRY_MOTORISTA,atual.nome],[CFG.ENTRY_MODAL,modalDoMotorista()]].concat(camposData(iso));
     ciclos.forEach(c=>campos.push([c.entry,c.full]));
     await postForm(campos);
     enviosAtuais[ddmmFromIso(iso)]=ciclosTxt; // atualiza cache local
@@ -475,10 +493,9 @@ async function consultar(){
 async function removerDia(dataBr){
   if(!confirm('Excluir sua disponibilidade de '+dataBr+'?')) return;
   if(foraDoHorario()||!dataEditavel(dataBr)){ solicitarExclusao(dataBr); return; }
-  const p=dataBr.split('/');
-  const campos=[[CFG.ENTRY_MOTORISTA,atual.nome],[CFG.ENTRY_MODAL,CFG.MODAL_VALOR],
-    [CFG.ENTRY_DATA+'_year',p[2]],[CFG.ENTRY_DATA+'_month',String(+p[1])],[CFG.ENTRY_DATA+'_day',String(+p[0])],
-    [CFG.ENTRY_EXCLUIR,CFG.VALOR_EXCLUIR]];
+  const campos=[[CFG.ENTRY_MOTORISTA,atual.nome],[CFG.ENTRY_MODAL,modalDoMotorista()]]
+    .concat(camposData(isoFromBr(dataBr)))
+    .concat([[CFG.ENTRY_EXCLUIR,CFG.VALOR_EXCLUIR]]);
   await postForm(campos);
   $('listaEnvios').innerHTML='<div class="vazio">🗑 Removendo <b>'+dataBr+'</b>… aguarde.</div>';
   setTimeout(consultar,6000);
@@ -490,10 +507,9 @@ async function solicitarExclusao(dataBr){
     'Você vai SOLICITAR a exclusão de '+dataBr+'. Se aprovada, será considerada NO SHOW '+
     'e o veículo será pausado automaticamente por 5 dias.\n\nDeseja enviar a solicitação?');
   if(!ok) return;
-  const p=dataBr.split('/');
-  const campos=[[CFG.ENTRY_MOTORISTA,atual.nome],[CFG.ENTRY_MODAL,CFG.MODAL_VALOR],
-    [CFG.ENTRY_DATA+'_year',p[2]],[CFG.ENTRY_DATA+'_month',String(+p[1])],[CFG.ENTRY_DATA+'_day',String(+p[0])],
-    [CFG.ENTRY_EXCLUIR,CFG.VALOR_SOLICITA]];
+  const campos=[[CFG.ENTRY_MOTORISTA,atual.nome],[CFG.ENTRY_MODAL,modalDoMotorista()]]
+    .concat(camposData(isoFromBr(dataBr)))
+    .concat([[CFG.ENTRY_EXCLUIR,CFG.VALOR_SOLICITA]]);
   await postForm(campos);
   alert('Solicitação enviada para '+dataBr+'. Aguarde a análise do dispatcher.');
   consultar();
