@@ -139,12 +139,18 @@
   .uhBtn2{width:100%;margin:0;padding:14px;border-radius:11px;font-size:1rem;font-weight:800;
     background:linear-gradient(135deg,#f97316,#ea580c);color:#0b0f14;border:0}
   .uhBtn2.sair{background:var(--card2);color:#fca5a5;border:1px solid rgba(239,68,68,.4)}
-  .chip.temEnvio{position:relative;border-color:rgba(34,197,94,.55)}
-  .chip.temEnvio::after{content:"✓";position:absolute;top:-6px;right:-6px;width:18px;height:18px;
-    background:var(--ok);color:#04120a;border-radius:50%;font-size:.62rem;font-weight:900;
-    display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,.4)}
-  .jaSel{font-size:.7rem;color:#7ee0a0;margin-top:6px;line-height:1.4}
-  .jaSel b{color:#a7f3c4}
+  .chip.temEnvio{position:relative;border-color:#22c55e;background:rgba(34,197,94,.16);color:#c7f9d8}
+  .chip.temEnvio::after{content:"✓";position:absolute;top:-8px;right:-8px;width:22px;height:22px;
+    background:#22c55e;color:#04120a;border-radius:50%;font-size:.75rem;font-weight:900;
+    display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,.5)}
+  .chip.temEnvio small{color:#7ee0a0}
+  .jaCard{margin-top:12px;border:1px solid rgba(34,197,94,.4);background:rgba(34,197,94,.08);
+    border-radius:12px;padding:12px 13px}
+  .jaCard .jt{font-size:.85rem;font-weight:800;color:#7ee0a0;display:flex;align-items:center;gap:7px;margin-bottom:8px}
+  .jaLinha{display:flex;justify-content:space-between;gap:8px;font-size:.86rem;padding:5px 0;border-bottom:1px solid rgba(34,197,94,.15)}
+  .jaLinha:last-child{border-bottom:0}
+  .jaLinha .jd{font-weight:800;color:#c7f9d8}
+  .jaLinha .jc{color:var(--mute);text-align:right}
 
   /* SUCESSO */
   .msg{text-align:center;padding:26px 6px 8px}
@@ -559,8 +565,9 @@ function podeMarcarNormal(iso){ return estadoDoDia(dataDeIso(iso))==='NORMAL'; }
 function podeEspera(iso){ return estadoDoDia(dataDeIso(iso))==='ESPERA'; }
 
 // exclusão direta (sem solicitar): D+2 em diante
-function depoisDeAmanha(){ const d=new Date(); d.setHours(0,0,0,0); d.setDate(d.getDate()+2); return d; }
-function podeExcluirDireto(br){ if(String(br).split('/').length<3) return false; return d0(dataDeBr(br))>=depoisDeAmanha(); }
+// Excluir direto: enquanto o dia ainda está no PRAZO NORMAL (antes das 18h da véspera).
+// Ex.: às 8h de 15/08, o dia 16/08 ainda é NORMAL -> pode excluir até as 18h de hoje.
+function podeExcluirDireto(br){ if(String(br).split('/').length<3) return false; return estadoDoDia(dataDeBr(br))==='NORMAL'; }
 // pode SOLICITAR exclusão? (só faz sentido para hoje e amanhã, que não excluem direto)
 // - amanhã (D+1): sempre
 // - hoje (D+0): só até HORA_LIMITE_SOLIC_HOJE
@@ -710,7 +717,12 @@ function montarEscolha(){
   const jaEl=$('jaMarcados');
   if(jaLista.length){
     jaEl.style.display='';
-    jaEl.innerHTML='✓ Você já marcou: '+jaLista.map(dt=>'<b>'+dt.slice(0,5)+'</b> ('+(enviosAtuais[dt]||'—')+')').join(', ')+'. Reenviar um desses <b>substitui</b>.';
+    jaEl.className='jaCard';
+    jaEl.innerHTML='<div class="jt">✅ Você já confirmou estes dias:</div>'+
+      jaLista.map(dt=>{ const d=dataDeBr(dt); const ds=DIAS_SEMANA[d.getDay()];
+        return '<div class="jaLinha"><span class="jd">'+ds+' '+dt.slice(0,5)+'</span><span class="jc">'+(enviosAtuais[dt]||'—')+'</span></div>';
+      }).join('')+
+      '<div style="font-size:.76rem;color:var(--mute);margin-top:8px">Para trocar um desses, é só marcar o dia de novo com os novos ciclos.</div>';
   }else{ jaEl.style.display='none'; jaEl.innerHTML=''; }
 
   $('chipsCiclos').innerHTML=CFG.CICLOS.map((c,i)=>'<div class="chip ciclo" data-i="'+i+'">'+c.label+'<small>'+c.hora+'</small></div>').join('');
