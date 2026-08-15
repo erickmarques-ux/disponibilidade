@@ -654,6 +654,7 @@ let enviosAtuais = {};
 let solicitacoes = {};   // dt -> 'ANALISE' | 'APROVADA' | 'NEGADA'
 let historicoNS = [];    // [{data, reg}]
 let espera = {};         // dt -> ciclos (lista de espera)
+let excluidosLocais = {}; // dt -> true : dias excluídos nesta sessão, ignorados até o worker sincronizar
 async function carregarEnviosAtuais(){
   enviosAtuais = {}; solicitacoes = {}; historicoNS = []; espera = {};
   try{
@@ -661,9 +662,14 @@ async function carregarEnviosAtuais(){
     const j=await r.json();
     (j.envios||[]).forEach(e=>{
       if(e.tipo==='hist'){ historicoNS.push({data:e.data, reg:e.reg||'', pun:e.pun||''}); }
-      else if(e.tipo==='espera'){ espera[e.data]=e.ciclos||''; }
+      else if(e.tipo==='espera'){ if(!excluidosLocais[e.data]) espera[e.data]=e.ciclos||''; }
       else if(e.tipo==='sol'){ solicitacoes[e.data]=e.st||'ANALISE'; }
-      else{ enviosAtuais[e.data]= e.ciclos||''; }
+      else{ if(!excluidosLocais[e.data]) enviosAtuais[e.data]= e.ciclos||''; }
+    });
+    // se o worker já não traz mais o dia, pode limpar a marca local
+    Object.keys(excluidosLocais).forEach(dt=>{
+      const aindaNoServidor=(j.envios||[]).some(e=>e.data===dt && (e.tipo===undefined||e.tipo==='espera'));
+      if(!aindaNoServidor) delete excluidosLocais[dt];
     });
   }catch(e){}
 }
@@ -785,6 +791,7 @@ async function marcarEspera(iso){
     ok:'Confirmar espera', cancel:'Agora não' });
   if(!ok) return;
   espera[dtBr]=escolhidos.map(c=>c.full).join(' · ');
+  delete excluidosLocais[dtBr];
   const campos=[[CFG.ENTRY_MOTORISTA,atual.nome],[CFG.ENTRY_MODAL,modalDoMotorista()]].concat(camposData(iso));
   escolhidos.forEach(c=>campos.push([c.entry,c.full]));
   campos.push([CFG.ENTRY_EXCLUIR, CFG.VALOR_ESPERA]);
@@ -799,6 +806,7 @@ async function sairEspera(iso){
     texto:'Deseja sair da lista de espera de <b>'+dtBr.slice(0,5)+'</b>?', ok:'Sair', cancel:'Cancelar', perigo:true });
   if(!ok) return;
   delete espera[dtBr];
+  excluidosLocais[dtBr]=true;
   // manda exclusão para o mesmo dia (remove os registros de espera daquele dia)
   const campos=[[CFG.ENTRY_MOTORISTA,atual.nome],[CFG.ENTRY_MODAL,modalDoMotorista()]]
     .concat(camposData(iso)).concat([[CFG.ENTRY_EXCLUIR,CFG.VALOR_EXCLUIR]]);
@@ -864,6 +872,7 @@ $('btEnviar').onclick=async function(){
     ciclosDoDia.forEach(c=>campos.push([c.entry,c.full]));
     postForm(campos);                          // dispara em background (não espera)
     enviosAtuais[ddmmFromIso(iso)]=ciclosDoDia.map(c=>c.full).join(' · ');
+    delete excluidosLocais[ddmmFromIso(iso)];  // remarcou: volta a valer
   }
   this.disabled=false; this.innerHTML='Enviar disponibilidade';
   const acao = subs.length ? 'atualizado(s)' : 'enviado(s)';
@@ -917,9 +926,9 @@ async function consultar(){
     (j.envios||[]).forEach(e=>{ if(e.tipo==='hist') srvHist.push({data:e.data, reg:e.reg||'', pun:e.pun||''});
       else if(e.tipo==='espera') srvEsp[e.data]=e.ciclos||'';
       else if(e.tipo==='sol') srvSol[e.data]=e.st||'ANALISE'; else srv[e.data]=e.ciclos||''; });
-    Object.keys(srv).forEach(dt=>{ if(enviosAtuais[dt]===undefined) enviosAtuais[dt]=srv[dt]; });
+    Object.keys(srv).forEach(dt=>{ if(enviosAtuais[dt]===undefined && !excluidosLocais[dt]) enviosAtuais[dt]=srv[dt]; });
     Object.keys(srvSol).forEach(dt=>{ solicitacoes[dt]=srvSol[dt]; });
-    Object.keys(srvEsp).forEach(dt=>{ if(espera[dt]===undefined) espera[dt]=srvEsp[dt]; });
+    Object.keys(srvEsp).forEach(dt=>{ if(espera[dt]===undefined && !excluidosLocais[dt]) espera[dt]=srvEsp[dt]; });
     historicoNS = srvHist;
     renderEnvios();
     atualizarUltimaHora(); // se descobrimos que já marcou, remove o dia da espera
@@ -933,6 +942,7 @@ async function removerDia(dataBr){
   if(!ok) return;
   if(!podeExcluirDireto(dataBr)){ solicitarExclusao(dataBr); return; }
   delete enviosAtuais[dataBr];                 // some da tela imediatamente
+  excluidosLocais[dataBr]=true;                // não deixa o worker "ressuscitar" o dia
   renderEnvios();
   const campos=[[CFG.ENTRY_MOTORISTA,atual.nome],[CFG.ENTRY_MODAL,modalDoMotorista()]]
     .concat(camposData(isoFromBr(dataBr)))
