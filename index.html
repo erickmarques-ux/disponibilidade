@@ -799,9 +799,15 @@ async function marcarEspera(iso){
   const campos=[[CFG.ENTRY_MOTORISTA,atual.nome],[CFG.ENTRY_MODAL,modalDoMotorista()]].concat(camposData(iso));
   escolhidos.forEach(c=>campos.push([c.entry,c.full]));
   campos.push([CFG.ENTRY_EXCLUIR, CFG.VALOR_ESPERA]);
-  postForm(campos);
+  const oke=await postForm(campos);
   atualizarUltimaHora();
-  toast('✅ Registrado na espera! Atualiza em alguns segundos. Não precisa repetir.');
+  if(oke){ toast('✅ Registrado na espera! Atualiza em alguns segundos. Não precisa repetir.'); }
+  else{
+    delete espera[dtBr]; atualizarUltimaHora();
+    await modalConfirm({ titulo:'⚠️ Falha ao entrar na espera', perigo:true,
+      texto:'Não conseguimos registrar — provável falta de internet. Verifique a conexão e tente de novo.',
+      ok:'Entendi', cancel:'Fechar' });
+  }
 }
 
 async function sairEspera(iso){
@@ -814,9 +820,16 @@ async function sairEspera(iso){
   // manda exclusão para o mesmo dia (remove os registros de espera daquele dia)
   const campos=[[CFG.ENTRY_MOTORISTA,atual.nome],[CFG.ENTRY_MODAL,modalDoMotorista()]]
     .concat(camposData(iso)).concat([[CFG.ENTRY_EXCLUIR,CFG.VALOR_EXCLUIR]]);
-  postForm(campos);
+  const oks=await postForm(campos);
   atualizarUltimaHora();
-  toast('✅ Você saiu da espera. Atualiza em alguns segundos.');
+  if(oks){ toast('✅ Você saiu da espera. Atualiza em alguns segundos.'); }
+  else{
+    delete excluidosLocais[dtBr]; espera[dtBr]='(reingressar)'; atualizarUltimaHora();
+    await modalConfirm({ titulo:'⚠️ Falha', perigo:true,
+      texto:'Não conseguimos concluir — provável falta de internet. Verifique a conexão e tente de novo.',
+      ok:'Entendi', cancel:'Fechar' });
+    consultar();
+  }
 }
 function selDias(){ return [...document.querySelectorAll('.chip.dia.on')].map(e=>e.dataset.v); }
 
@@ -840,15 +853,23 @@ function validar(){
   $('btEnviar').disabled=!(okIno&&selDias().length&&selCiclos().length);
 }
 
+// envia pro Google Forms detectando falha de rede; tenta de novo até 3x
 function postForm(campos){
-  return new Promise(res=>{
-    const f=document.createElement('form'); f.action=CFG.FORM_RESPONSE_URL; f.method='POST';
-    if(DEBUG){ f.target='_blank'; }
-    else{ const s=document.createElement('iframe'); s.name='s'+Math.random(); s.style.display='none'; document.body.appendChild(s); f.target=s.name; }
-    campos.concat([['fvv','1'],['pageHistory','0']]).forEach(([k,v])=>{ const i=document.createElement('input'); i.type='hidden'; i.name=k; i.value=v; f.appendChild(i); });
-    document.body.appendChild(f); f.submit(); setTimeout(res, DEBUG?1200:600);
-  });
+  const body=new URLSearchParams();
+  campos.concat([['fvv','1'],['pageHistory','0']]).forEach(([k,v])=>body.append(k,v));
+  async function tentar(n){
+    try{
+      await fetch(CFG.FORM_RESPONSE_URL, { method:'POST', mode:'no-cors', body });
+      return true; // no-cors não deixa ler status, mas se não lançou, a rede funcionou
+    }catch(e){
+      if(n<3){ await new Promise(r=>setTimeout(r, 700*n)); return tentar(n+1); }
+      return false; // falhou 3x (provavelmente sem internet)
+    }
+  }
+  return tentar(1);
 }
+// versão fire-and-forget para casos onde não precisamos aguardar (ex.: republicar)
+function postFormSilencioso(campos){ postForm(campos); }
 
 $('btEnviar').onclick=async function(){
   let dias=selDias(), ciclos=selCiclos();
@@ -867,6 +888,7 @@ $('btEnviar').onclick=async function(){
   }
 
   this.disabled=true; this.textContent='Enviando…';
+  const falhas=[];
   for(const iso of dias){
     const p=iso.split('-');
     const ehDomingo = new Date(+p[0],+p[1]-1,+p[2]).getDay()===0;
@@ -874,11 +896,27 @@ $('btEnviar').onclick=async function(){
     if(!ciclosDoDia.length) continue;                        // domingo só com PM: pula
     const campos=[[CFG.ENTRY_MOTORISTA,atual.nome],[CFG.ENTRY_MODAL,modalDoMotorista()]].concat(camposData(iso));
     ciclosDoDia.forEach(c=>campos.push([c.entry,c.full]));
-    postForm(campos);                          // dispara em background (não espera)
-    enviosAtuais[ddmmFromIso(iso)]=ciclosDoDia.map(c=>c.full).join(' · ');
-    delete excluidosLocais[ddmmFromIso(iso)];  // remarcou: volta a valer
+    const ok=await postForm(campos);                         // AGUARDA confirmação (com retry)
+    if(ok){
+      enviosAtuais[ddmmFromIso(iso)]=ciclosDoDia.map(c=>c.full).join(' · ');
+      delete excluidosLocais[ddmmFromIso(iso)];
+    }else{
+      falhas.push(ddmmFromIso(iso).slice(0,5));
+    }
   }
   this.disabled=false; this.innerHTML='Enviar disponibilidade';
+
+  if(falhas.length){
+    await modalConfirm({ titulo:'⚠️ Falha no envio', perigo:true,
+      texto:'Não conseguimos enviar '+falhas.length+' dia(s): <b>'+falhas.join(', ')+'</b>.<br><br>'+
+        'Isso costuma ser <b>falta de internet</b>. Verifique sua conexão e <b>toque em Enviar de novo</b>. '+
+        'Nada foi perdido — os dias que já foram estão salvos.',
+      ok:'Tentar de novo', cancel:'Fechar' });
+    // mantém na tela de marcação para reenviar
+    validar();
+    return;
+  }
+
   const acao = subs.length ? 'atualizado(s)' : 'enviado(s)';
   $('resumoOk').innerHTML='<b>'+dias.length+'</b> dia(s) '+acao+'<br>Ciclos: <b>'+ciclos.map(c=>c.label).join(', ')+'</b>';
   trocarPasso('passoOk');
@@ -951,8 +989,16 @@ async function removerDia(dataBr){
   const campos=[[CFG.ENTRY_MOTORISTA,atual.nome],[CFG.ENTRY_MODAL,modalDoMotorista()]]
     .concat(camposData(isoFromBr(dataBr)))
     .concat([[CFG.ENTRY_EXCLUIR,CFG.VALOR_EXCLUIR]]);
-  postForm(campos);                            // background
-  toast('✅ Excluído! A planilha atualiza em alguns segundos. Não precisa repetir.');
+  const ok2=await postForm(campos);
+  if(ok2){ toast('✅ Excluído! A planilha atualiza em alguns segundos. Não precisa repetir.'); }
+  else{
+    // reverte o estado local e avisa
+    delete excluidosLocais[dataBr];
+    await modalConfirm({ titulo:'⚠️ Falha ao excluir', perigo:true,
+      texto:'Não conseguimos concluir a exclusão de <b>'+dataBr.slice(0,5)+'</b> — provável falta de internet. '+
+        'Verifique a conexão e tente de novo.', ok:'Entendi', cancel:'Fechar' });
+    consultar();
+  }
 }
 
 // fora do prazo: SOLICITAÇÃO com aviso de No Show
@@ -979,8 +1025,14 @@ async function solicitarExclusao(dataBr){
   const campos=[[CFG.ENTRY_MOTORISTA,atual.nome],[CFG.ENTRY_MODAL,modalDoMotorista()]]
     .concat(camposData(isoFromBr(dataBr)))
     .concat([[CFG.ENTRY_EXCLUIR,CFG.VALOR_SOLICITA]]);
-  postForm(campos);
-  toast('✅ Solicitação registrada! Acompanhe o status aqui na consulta.');
+  const ok3=await postForm(campos);
+  if(ok3){ toast('✅ Solicitação registrada! Acompanhe o status aqui na consulta.'); }
+  else{
+    delete solicitacoes[dataBr]; renderEnvios();
+    await modalConfirm({ titulo:'⚠️ Falha ao solicitar', perigo:true,
+      texto:'Não conseguimos registrar sua solicitação — provável falta de internet. Verifique a conexão e tente de novo.',
+      ok:'Entendi', cancel:'Fechar' });
+  }
 }
 $('btConsultar').onclick=consultar;
 $('btVerEnvios').onclick=consultar;
