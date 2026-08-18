@@ -209,6 +209,24 @@
     box-shadow:0 8px 24px rgba(0,0,0,.5);opacity:0;pointer-events:none;transition:.25s;max-width:90%}
   .toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
   .toast.err{border-left-color:var(--alert)}
+  /* Como usar */
+  .infoCta.destaque{border:1.5px solid var(--gold);background:linear-gradient(135deg,rgba(245,179,1,.14),rgba(245,179,1,.04))}
+  .cuIntro{font-size:.95rem;line-height:1.55;margin-bottom:14px}
+  .passo{display:flex;gap:12px;margin-bottom:16px;align-items:flex-start}
+  .pnum{flex:0 0 34px;width:34px;height:34px;border-radius:50%;background:var(--gold);color:#0b0f14;
+    font-weight:900;font-size:1.05rem;display:flex;align-items:center;justify-content:center}
+  .pcont{flex:1}
+  .pcont>b{font-size:1rem;display:block;margin-bottom:3px}
+  .pcont p{font-size:.88rem;line-height:1.5;color:var(--ink);margin:0 0 8px}
+  .pimg{width:100%;max-width:300px;height:auto;background:var(--bg2);border:1px solid var(--line);
+    border-radius:10px;padding:4px}
+  .gv{color:#7ee0a0;font-weight:700}
+  .cuBox{background:rgba(245,179,1,.1);border:1px solid rgba(245,179,1,.35);border-radius:12px;
+    padding:12px 14px;margin-top:14px}
+  .cuBox b{color:var(--gold2)}
+  .cuBox p{font-size:.86rem;line-height:1.55;margin:5px 0 0;color:var(--ink)}
+  .cuBox.azul{background:rgba(59,130,246,.1);border-color:rgba(59,130,246,.35)}
+  .cuBox.azul b{color:#93c5fd}
   .avisoProc{margin-top:14px;background:rgba(59,130,246,.1);border:1px solid rgba(59,130,246,.35);
     border-radius:12px;padding:12px 14px;font-size:.86rem;line-height:1.55;color:#bfdbfe}
   .avisoProc b{color:#dbeafe}
@@ -292,6 +310,12 @@
       <div class="field"><input id="placa" type="text" maxlength="8" placeholder="ABC1D23" autocomplete="off" inputmode="latin"></div>
       <div class="erro" id="erroPlaca"></div>
       <button class="btp" id="btPlaca">Continuar →</button>
+
+      <div class="infoCta destaque" onclick="abrirComoUsar()">
+        <div class="ic">👋</div>
+        <div class="tt"><b>Como usar (passo a passo)</b><span>Primeira vez aqui? Toque e veja como é fácil</span></div>
+        <div class="arw">›</div>
+      </div>
 
       <div class="infoCta" onclick="abrirInfo()">
         <div class="ic">📋</div>
@@ -404,6 +428,101 @@
       <div class="blk"><div class="bh"><div class="bic">📞</div><div class="bt">Dúvidas</div></div>
         <p>Fale com o responsável do grupo. 📦 Contamos com sua pontualidade, comprometimento e colaboração! 💪</p></div>
 </div>
+  </div>
+</div>
+
+<!-- COMO USAR (passo a passo) -->
+<div class="sheet" id="sheetComoUsar">
+  <div class="bg" onclick="fecharComoUsar()"></div>
+  <div class="panel">
+    <div class="head"><b>👋 Como usar</b><button class="x" onclick="fecharComoUsar()">Fechar ✕</button></div>
+    <div class="content">
+      <p class="cuIntro">É rapidinho. Você só precisa da sua <b>placa</b>. Veja os passos:</p>
+
+      <div class="passo">
+        <div class="pnum">1</div>
+        <div class="pcont">
+          <b>Digite sua placa</b>
+          <p>Na primeira tela, digite a placa do seu veículo e toque em <b>Continuar</b>. Seu nome aparece sozinho.</p>
+          <svg viewBox="0 0 300 90" class="pimg">
+            <rect x="20" y="20" width="200" height="50" rx="10" fill="var(--card)" stroke="var(--gold)" stroke-width="2"/>
+            <text x="120" y="52" text-anchor="middle" fill="var(--gold2)" font-size="22" font-weight="bold" font-family="monospace">ABC1D23</text>
+            <rect x="228" y="20" width="52" height="50" rx="10" fill="var(--gold)"/>
+            <text x="254" y="50" text-anchor="middle" fill="#0b0f14" font-size="20" font-weight="bold">→</text>
+          </svg>
+        </div>
+      </div>
+
+      <div class="passo">
+        <div class="pnum">2</div>
+        <div class="pcont">
+          <b>Escolha os dias</b>
+          <p>Toque nos <b>dias</b> que você quer trabalhar. Ficam <span class="gv">verdes</span> quando marcados.</p>
+          <svg viewBox="0 0 300 70" class="pimg">
+            <rect x="15" y="15" width="60" height="44" rx="9" fill="#16a34a"/>
+            <text x="45" y="34" text-anchor="middle" fill="#fff" font-size="12" font-weight="bold">seg</text>
+            <text x="45" y="50" text-anchor="middle" fill="#c7f9d8" font-size="11">18/08</text>
+            <rect x="85" y="15" width="60" height="44" rx="9" fill="var(--card)" stroke="var(--line)"/>
+            <text x="115" y="34" text-anchor="middle" fill="var(--mute)" font-size="12" font-weight="bold">ter</text>
+            <text x="115" y="50" text-anchor="middle" fill="var(--dim)" font-size="11">19/08</text>
+            <rect x="155" y="15" width="60" height="44" rx="9" fill="#16a34a"/>
+            <text x="185" y="34" text-anchor="middle" fill="#fff" font-size="12" font-weight="bold">qua</text>
+            <text x="185" y="50" text-anchor="middle" fill="#c7f9d8" font-size="11">20/08</text>
+            <circle cx="205" cy="20" r="9" fill="#16a34a" stroke="#fff" stroke-width="1.5"/>
+            <text x="205" y="24" text-anchor="middle" fill="#fff" font-size="11" font-weight="bold">✓</text>
+          </svg>
+        </div>
+      </div>
+
+      <div class="passo">
+        <div class="pnum">3</div>
+        <div class="pcont">
+          <b>Escolha os ciclos</b>
+          <p>Toque em <b>AM</b>, <b>PM</b> ou <b>SD</b> — os horários que você faz. Valem para todos os dias marcados.</p>
+          <svg viewBox="0 0 300 66" class="pimg">
+            <rect x="20" y="12" width="76" height="44" rx="9" fill="#16a34a"/>
+            <text x="58" y="32" text-anchor="middle" fill="#fff" font-size="14" font-weight="bold">AM</text>
+            <text x="58" y="48" text-anchor="middle" fill="#c7f9d8" font-size="10">8:00</text>
+            <rect x="112" y="12" width="76" height="44" rx="9" fill="#16a34a"/>
+            <text x="150" y="32" text-anchor="middle" fill="#fff" font-size="14" font-weight="bold">PM</text>
+            <text x="150" y="48" text-anchor="middle" fill="#c7f9d8" font-size="10">13:00</text>
+            <rect x="204" y="12" width="76" height="44" rx="9" fill="var(--card)" stroke="var(--line)"/>
+            <text x="242" y="32" text-anchor="middle" fill="var(--mute)" font-size="14" font-weight="bold">SD</text>
+            <text x="242" y="48" text-anchor="middle" fill="var(--dim)" font-size="10">15:00</text>
+          </svg>
+        </div>
+      </div>
+
+      <div class="passo">
+        <div class="pnum">4</div>
+        <div class="pcont">
+          <b>Toque em Enviar</b>
+          <p>Pronto! Aparece a tela verde <b>“Registrado!”</b>. <b>Está salvo</b> — não precisa enviar de novo.</p>
+          <svg viewBox="0 0 300 70" class="pimg">
+            <rect x="30" y="14" width="240" height="42" rx="11" fill="var(--gold)"/>
+            <text x="150" y="40" text-anchor="middle" fill="#0b0f14" font-size="15" font-weight="bold">Enviar disponibilidade</text>
+          </svg>
+        </div>
+      </div>
+
+      <div class="passo">
+        <div class="pnum">5</div>
+        <div class="pcont">
+          <b>Precisa mudar ou tirar um dia?</b>
+          <p>Toque em <b>“Consultar meus envios”</b>. Lá você vê seus dias e pode <b>excluir</b> (dentro do prazo) ou <b>solicitar</b> exclusão.</p>
+        </div>
+      </div>
+
+      <div class="cuBox">
+        <b>⏰ Fique atento ao prazo</b>
+        <p>Marcar até as <b>18h da véspera</b> te dá <b>prioridade</b>. Depois disso, entra na <b>lista de espera</b> (sem prioridade), que fecha às <b>15h</b> do próprio dia.</p>
+      </div>
+
+      <div class="cuBox azul">
+        <b>🔤 Letras pequenas?</b>
+        <p>Toque no botão <b>A+</b> lá no canto de cima. Tudo fica maior e mais fácil de ler.</p>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -1045,6 +1164,8 @@ function abrirInfo(){ $('sheetInfo').classList.add('on'); document.body.style.ov
 function fecharInfo(){ $('sheetInfo').classList.remove('on'); document.body.style.overflow=''; }
 function abrirDicas(){ $('sheetDicas').classList.add('on'); document.body.style.overflow='hidden'; }
 function fecharDicas(){ $('sheetDicas').classList.remove('on'); document.body.style.overflow=''; }
+function abrirComoUsar(){ $('sheetComoUsar').classList.add('on'); document.body.style.overflow='hidden'; }
+function fecharComoUsar(){ $('sheetComoUsar').classList.remove('on'); document.body.style.overflow=''; }
 
 function toggleGrande(){
   const on=document.body.classList.toggle('grande');
