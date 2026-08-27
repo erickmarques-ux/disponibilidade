@@ -712,6 +712,7 @@ function modalConfirm(opt){
     $('modalTexto').innerHTML=opt.texto||'';
     $('modalOk').textContent=opt.ok||'Confirmar';
     $('modalCancel').textContent=opt.cancel||'Cancelar';
+    $('modalCancel').style.display = opt.somenteOk ? 'none' : '';
     m.classList.toggle('perigo', !!opt.perigo);
     $('modalOk').classList.toggle('perigo', !!opt.perigo);
     m.classList.add('on');
@@ -972,17 +973,22 @@ function validar(){
   $('btEnviar').disabled=!(okIno&&selDias().length&&selCiclos().length);
 }
 
-// envia pro Google Forms detectando falha de rede; tenta de novo até 3x
+// envia pro Google Forms com TIMEOUT (evita "Enviando..." travado); tenta até 2x
 function postForm(campos){
   const body=new URLSearchParams();
   campos.concat([['fvv','1'],['pageHistory','0']]).forEach(([k,v])=>body.append(k,v));
   async function tentar(n){
+    // timeout de 8s por tentativa — se a rede pendurar, aborta e trata como falha
+    const ctrl = new AbortController();
+    const tid = setTimeout(()=>ctrl.abort(), 8000);
     try{
-      await fetch(CFG.FORM_RESPONSE_URL, { method:'POST', mode:'no-cors', body });
-      return true; // no-cors não deixa ler status, mas se não lançou, a rede funcionou
+      await fetch(CFG.FORM_RESPONSE_URL, { method:'POST', mode:'no-cors', body, signal:ctrl.signal });
+      clearTimeout(tid);
+      return true;
     }catch(e){
-      if(n<3){ await new Promise(r=>setTimeout(r, 700*n)); return tentar(n+1); }
-      return false; // falhou 3x (provavelmente sem internet)
+      clearTimeout(tid);
+      if(n<2){ await new Promise(r=>setTimeout(r, 500)); return tentar(n+1); }
+      return false; // falhou 2x -> o chamador mostra o erro
     }
   }
   return tentar(1);
@@ -991,6 +997,20 @@ function postForm(campos){
 function postFormSilencioso(campos){ postForm(campos); }
 
 $('btEnviar').onclick=async function(){
+  // RATE LIMIT: no máximo 5 envios em 60s por dispositivo (anti-spam / anti-ataque)
+  try{
+    const agora=Date.now();
+    let hist=[]; try{ hist=JSON.parse(localStorage.getItem('_envHist')||'[]'); }catch(_){}
+    hist=hist.filter(t=>agora-t<60000);
+    if(hist.length>=5){
+      const espera=Math.ceil((60000-(agora-hist[0]))/1000);
+      await modalConfirm({ titulo:'⏳ Espere um momento', somenteOk:true, ok:'Ok',
+        texto:'Você fez muitos envios seguidos. Aguarde <b>'+espera+' segundos</b> e tente de novo.<br><br>Isso protege o sistema — seus envios anteriores estão salvos.' });
+      return;
+    }
+    hist.push(agora); localStorage.setItem('_envHist', JSON.stringify(hist));
+  }catch(_){}
+
   let dias=selDias(), ciclos=selCiclos();
   dias = dias.filter(iso=>podeMarcarNormal(iso));        // só dias ainda no prazo normal
   if(!dias.length){ toast('Esses dias já saíram do prazo. Use a lista de espera.', true); atualizarUltimaHora(); return; }
@@ -1008,7 +1028,10 @@ $('btEnviar').onclick=async function(){
 
   this.disabled=true; this.textContent='Enviando…';
   const falhas=[];
+  let _i=0;
   for(const iso of dias){
+    _i++;
+    if(dias.length>1) this.textContent='Enviando… ('+_i+'/'+dias.length+')';
     const p=iso.split('-');
     const ehDomingo = new Date(+p[0],+p[1]-1,+p[2]).getDay()===0;
     const ciclosDoDia = ciclos.filter(c=>!(ehDomingo && c.semDomingo));
