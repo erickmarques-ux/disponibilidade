@@ -349,6 +349,7 @@
       <div class="card">
         <div class="drv" id="drvDisp"></div>
         <div id="avisoStatus"></div>
+        <div id="cardVaga" style="display:none"></div>
         <div class="check esconde" id="boxInoperante">
           <input type="checkbox" id="ckInoperante">
           <span>Você está <b>INOPERANTE</b>. Ao marcar, <b>confirma que está apto a rodar</b> nos dias informados.<br><br>⚠️ Se não puder comparecer, avise o dispatcher — o não comparecimento é <b>NO SHOW</b> (pausa de 5 dias).</span>
@@ -838,7 +839,22 @@ function montarEscolha(){
   boxIno.classList.add('esconde'); $('ckInoperante').checked=false;
 
   if(cls.tipo==='BLOQUEIO'){
-    aviso.className='aviso'; aviso.innerHTML='⛔ '+cls.msg;
+    // aviso base + detalhes da pausa (motivo, retorno, histórico) se o worker mandar
+    var htmlAviso = '⛔ '+cls.msg;
+    var pz = atual.pausa;   // {motivo, inicio, fim, diasPausa} — vem do /cadastro
+    if(pz && pz.fim){
+      htmlAviso += '<div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,.12);font-size:.86rem;text-align:left">'
+        + '<div><b>Motivo:</b> '+(pz.motivo||'—')+'</div>'
+        + '<div><b>Retorno:</b> '+(pz.fim||'—')+(pz.diasPausa?(' ('+pz.diasPausa+' dias)'):'')+'</div>'
+        + '</div>';
+    }
+    var hist = atual.historico;  // [{dataHora, tipo, detalhe}]
+    if(hist && hist.length){
+      htmlAviso += '<div style="margin-top:8px;font-size:.8rem;text-align:left;color:var(--mute)"><b>Seu histórico recente:</b><br>'
+        + hist.slice(0,5).map(function(h){ return '• '+(h.dataHora||'').split(' ')[0]+' — '+rotuloHist(h.tipo)+(h.detalhe?(' ('+h.detalhe+')'):''); }).join('<br>')
+        + '</div>';
+    }
+    aviso.className='aviso'; aviso.innerHTML=htmlAviso;
     area.classList.add('esconde'); bt.classList.add('esconde'); btC.classList.remove('esconde');
     atualizarUltimaHora();                 // esconde a lista de espera (statusAtual===BLOQUEIO)
     var _cta=$('ctaFds'); if(_cta) _cta.style.display='none';
@@ -853,6 +869,7 @@ function montarEscolha(){
   }else{
     aviso.className='aviso ok'; aviso.textContent='Tudo certo! Marque os dias e os ciclos.';
   }
+  mostrarVagaDoDia();
 
   const chips=[]; const hoje=new Date();
   for(let i=0;i<=CFG.DIAS_FUTUROS+1;i++){
@@ -924,6 +941,28 @@ document.addEventListener('click', function(e){
 });
 
 // Card de lista de espera: mostra HOJE/AMANHÃ apenas quando estão no estado ESPERA
+function rotuloHist(t){ t=String(t||'').toUpperCase(); return t==='NS'?'NS (não compareceu)':(t==='ATRASO'?'Atraso':(t==='PAUSA'?'Pausa':(t==='VOLTA'?'Retorno':(t==='CHEGOU'?'Presença OK':t)))); }
+
+// Consulta a vaga/onda/gaiola do motorista na ROTA DO DIA (via worker) e mostra um card.
+async function mostrarVagaDoDia(){
+  var box=$('cardVaga'); if(!box) return;
+  box.style.display='none'; box.innerHTML='';
+  try{
+    const r=await fetch(CFG.WORKER_URL+'/rotadodia?placa='+encodeURIComponent(placaAtual)+'&t='+Date.now());
+    if(!r.ok) return;
+    const j=await r.json();
+    if(!j || !j.found || !j.onda && !j.vaga && !j.gaiola) return;   // sem distribuição pra ele hoje
+    box.style.display='';
+    box.className='jaCard';
+    box.innerHTML='<div class="jt">📦 Seu carregamento de hoje</div>'
+      + '<div class="jaLinha"><span class="jd">Onda</span><span class="jc">'+(j.onda||'—')+'</span></div>'
+      + '<div class="jaLinha"><span class="jd">Vaga / Doca</span><span class="jc">'+(j.vaga||'—')+'</span></div>'
+      + '<div class="jaLinha"><span class="jd">Gaiola</span><span class="jc">'+(j.gaiola||'—')+'</span></div>'
+      + (j.regiao?('<div class="jaLinha"><span class="jd">Região</span><span class="jc">'+j.regiao+'</span></div>'):'')
+      + '<div style="font-size:.76rem;color:var(--mute);margin-top:8px">Chegue na sua onda. Atraso ou não comparecer (NS) gera pausa.</div>';
+  }catch(e){ /* silencioso: se não houver, só não mostra */ }
+}
+
 function atualizarUltimaHora(){
   const box=$('ultimaHora'); if(!box) return;
   // motorista PAUSADO/bloqueado não pode rodar — nem lista de espera
