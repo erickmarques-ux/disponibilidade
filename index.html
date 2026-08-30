@@ -1229,7 +1229,11 @@ async function removerDia(dataBr){
     .concat(camposData(isoFromBr(dataBr)))
     .concat([[CFG.ENTRY_EXCLUIR,CFG.VALOR_EXCLUIR]]);
   const ok2=await postForm(campos);
-  if(ok2){ toast('✅ Excluído! A planilha atualiza em alguns segundos. Não precisa repetir.'); }
+  if(ok2){
+    toast('✅ Pedido de exclusão enviado! Some da planilha em até 2 min. Não precisa repetir.');
+    // reconfere daqui a alguns segundos: se o dia voltar, avisa pra conferir depois
+    setTimeout(function(){ consultar(); }, 6000);
+  }
   else{
     // reverte o estado local e avisa
     delete excluidosLocais[dataBr];
