@@ -105,19 +105,6 @@
     background:rgba(239,68,68,.09);border:1px solid rgba(239,68,68,.3)}
   .aviso.ok{background:rgba(34,197,94,.09);border-color:rgba(34,197,94,.3)}
   .aviso.warn{background:rgba(245,179,1,.1);border-color:rgba(245,179,1,.35)}
-  .ctaFds{margin-top:12px;border-radius:14px;padding:13px 14px;
-    background:linear-gradient(135deg,rgba(245,179,1,.14),rgba(249,115,22,.12));
-    border:1.5px solid rgba(245,179,1,.4);box-shadow:0 4px 16px rgba(245,179,1,.12)}
-  .ctaFdsTxt{display:flex;gap:11px;align-items:flex-start}
-  .ctaFdsIc{font-size:1.7rem;line-height:1;filter:drop-shadow(0 2px 4px rgba(249,115,22,.4))}
-  .ctaFdsTxt b{color:var(--gold2)}
-  .ctaFdsTxt small{color:var(--mute);font-size:.8rem;line-height:1.45;display:block;margin-top:3px}
-  .ctaFdsBt{width:100%;margin-top:11px;padding:11px;border-radius:11px;border:none;
-    background:var(--grad);color:#0b0f14;font-weight:800;font-size:.92rem;cursor:pointer;
-    box-shadow:0 4px 14px rgba(245,179,1,.3)}
-  .ctaFdsBt:active{transform:scale(.98)}
-  .ctaFds.feito{background:rgba(34,197,94,.1);border-color:rgba(34,197,94,.4)}
-  .ctaFds.feito .ctaFdsBt{background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff}
 
   .check{display:flex;gap:11px;align-items:flex-start;margin-top:14px;padding:13px;
     background:rgba(245,179,1,.07);border:1px solid rgba(245,179,1,.3);border-radius:12px;
@@ -358,14 +345,6 @@
       <div id="areaEscolha">
         <label>Dias — toque para marcar</label>
         <div class="chips" id="chipsDias"></div>
-        <div class="ctaFds" id="ctaFds" style="display:none">
-          <div class="ctaFdsTxt">
-            <span class="ctaFdsIc">🚀</span>
-            <div><b>Bora rodar no fim de semana?</b><br>
-            <small>Sábado e domingo costumam ter <b>menos motorista e mais rota</b> — é onde dá pra faturar mais. Lembrando: cada veículo precisa rodar ao menos <b>2× no mês</b> no fds.</small></div>
-          </div>
-          <button type="button" class="ctaFdsBt" id="btMarcarFds">Marcar sábado e domingo</button>
-        </div>
         <div class="jaSel" id="jaMarcados" style="display:none"></div>
         <label>Ciclos — valem para todos os dias</label>
         <div class="chips" id="chipsCiclos"></div>
@@ -803,12 +782,21 @@ let espera = {};         // dt -> ciclos (lista de espera)
 let excluidosLocais = {}; // dt -> true : dias excluídos nesta sessão, ignorados até o worker sincronizar
 async function carregarEnviosAtuais(){
   enviosAtuais = {}; solicitacoes = {}; historicoNS = []; espera = {};
+  // corte: só última semana (7 dias atrás) em diante — não mostrar mês passado
+  const _hj=new Date(); _hj.setHours(0,0,0,0);
+  const _corte=new Date(_hj.getTime() - 7*864e5);
+  function _dentroDaJanela(dtBr){
+    const p=String(dtBr||'').split('/'); if(p.length!==3) return true; // sem data legível: não barra
+    const d=new Date(+p[2], +p[1]-1, +p[0]); if(isNaN(d.getTime())) return true;
+    return d.getTime() >= _corte.getTime();
+  }
   try{
     const r=await fetch(CFG.WORKER_URL+'/envios?placa='+encodeURIComponent(placaAtual)+'&t='+Date.now());
     const j=await r.json();
     (j.envios||[]).forEach(e=>{
-      if(e.tipo==='hist'){ historicoNS.push({data:e.data, reg:e.reg||'', pun:e.pun||''}); }
-      else if(e.tipo==='espera'){ if(!excluidosLocais[e.data]) espera[e.data]=e.ciclos||''; }
+      if(e.tipo==='hist'){ historicoNS.push({data:e.data, reg:e.reg||'', pun:e.pun||''}); return; }
+      if(!_dentroDaJanela(e.data)) return;   // ignora disponibilidade/espera/sol de mais de 7 dias atrás
+      if(e.tipo==='espera'){ if(!excluidosLocais[e.data]) espera[e.data]=e.ciclos||''; }
       else if(e.tipo==='sol'){ solicitacoes[e.data]=e.st||'ANALISE'; }
       else{ if(!excluidosLocais[e.data]) enviosAtuais[e.data]= e.ciclos||''; }
     });
@@ -857,7 +845,6 @@ function montarEscolha(){
     aviso.className='aviso'; aviso.innerHTML=htmlAviso;
     area.classList.add('esconde'); bt.classList.add('esconde'); btC.classList.remove('esconde');
     atualizarUltimaHora();                 // esconde a lista de espera (statusAtual===BLOQUEIO)
-    var _cta=$('ctaFds'); if(_cta) _cta.style.display='none';
     var _ja=$('jaMarcados'); if(_ja){ _ja.style.display='none'; }
     trocarPasso('passoDisp'); return;
   }
@@ -881,8 +868,6 @@ function montarEscolha(){
   }
   $('chipsDias').innerHTML=chips.length ? chips.join('') : '<div class="vazio" style="text-align:left;padding:8px 0">Nenhum dia aberto para marcação normal agora. Veja a lista de espera abaixo. 👇</div>';
 
-  // CTA de fim de semana: só aparece se houver sáb/dom disponíveis para marcar
-  atualizarCtaFds();
 
   // resumo do que ele já marcou
   const jaLista = Object.keys(enviosAtuais)
@@ -905,40 +890,11 @@ function montarEscolha(){
       if(this.classList.contains('off')){ toast('PM não roda aos domingos.', true); return; }
       this.classList.toggle('on');
       ajustarCiclosPorDomingo();
-      atualizarCtaFds();
       validar();
     };
   });
   validar(); atualizarUltimaHora(); trocarPasso('passoDisp');
 }
-
-// CTA fim de semana: mostra se há sáb/dom nos chips e liga o botão de marcar
-function chipsFds(){
-  return [...document.querySelectorAll('#chipsDias .chip.dia')].filter(ch=>{
-    const iso=ch.dataset.v; if(!iso) return false;
-    const dt=new Date(iso+'T12:00:00');
-    const dow=dt.getDay();
-    return dow===0 || dow===6;   // domingo ou sábado
-  });
-}
-function atualizarCtaFds(){
-  const cta=$('ctaFds'); if(!cta) return;
-  const fds=chipsFds();
-  if(!fds.length){ cta.style.display='none'; return; }
-  cta.style.display='';
-  const todosOn=fds.every(ch=>ch.classList.contains('on'));
-  cta.classList.toggle('feito', todosOn);
-  const bt=$('btMarcarFds');
-  if(bt) bt.textContent = todosOn ? '✓ Fim de semana marcado' : 'Marcar sábado e domingo';
-}
-document.addEventListener('click', function(e){
-  if(e.target && e.target.id==='btMarcarFds'){
-    const fds=chipsFds();
-    const todosOn=fds.length && fds.every(ch=>ch.classList.contains('on'));
-    fds.forEach(ch=>{ if(todosOn) ch.classList.remove('on'); else ch.classList.add('on'); });
-    ajustarCiclosPorDomingo(); atualizarCtaFds(); validar();
-  }
-});
 
 // Card de lista de espera: mostra HOJE/AMANHÃ apenas quando estão no estado ESPERA
 function rotuloHist(t){ t=String(t||'').toUpperCase(); return t==='NS'?'NS (não compareceu)':(t==='ATRASO'?'Atraso':(t==='PAUSA'?'Pausa':(t==='VOLTA'?'Retorno':(t==='CHEGOU'?'Presença OK':t)))); }
