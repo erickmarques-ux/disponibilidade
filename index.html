@@ -39,6 +39,8 @@
   .cg-hero .onda{font-size:2.7rem;font-weight:900;line-height:1.05;margin:4px 0 2px;
     background:linear-gradient(135deg,#fff,var(--gold2));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
   .cg-hero .sub{color:var(--mute);font-size:.85rem}
+  .cg-status{display:inline-flex;align-items:center;gap:6px;margin-top:12px;padding:6px 12px;
+    border-radius:999px;border:1.5px solid;font-weight:800;font-size:.9rem}
   .cg-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
   .cg-cell{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;text-align:center}
   .cg-cell.big{grid-column:1 / -1}
@@ -968,15 +970,37 @@ async function mostrarCarregamento(){
         + '<p style="font-size:.85rem">A distribuição sai mais perto do horário. Volte aqui e toque em <b>Atualizar</b>.</p></div>';
       return;
     }
+    // status do carregamento (do get-routes-list, via snapshot do worker) — casa por nome do motorista
+    var statusChip='';
+    try{
+      const rc=await fetch(CFG.WORKER_URL+'/?t='+Date.now());
+      const carr=rc.ok ? await rc.json() : {};
+      const bases=(carr&&carr.bases)?carr.bases:carr;
+      var alvo=(atual&&atual.nome?atual.nome:'').toString().trim().toUpperCase();
+      var achou=null;
+      Object.keys(bases||{}).forEach(function(b){
+        var linhas=(bases[b]&&bases[b].linhas)?bases[b].linhas:(Array.isArray(bases[b])?bases[b]:[]);
+        (linhas||[]).forEach(function(l){
+          if(!achou && l.motorista && l.motorista.toString().trim().toUpperCase()===alvo) achou=l;
+        });
+      });
+      if(achou){
+        var lab=achou.statusLabel||achou.status||'';
+        var cor = /finaliz/i.test(lab)?'#22c55e':(/rota/i.test(lab)?'#3b82f6':(/subiu/i.test(lab)?'#22c55e':'#f59e0b'));
+        var ic = /finaliz/i.test(lab)?'✅':(/rota/i.test(lab)?'🚚':(/subiu/i.test(lab)?'✓':'⏳'));
+        statusChip='<div class="cg-status" style="border-color:'+cor+'55;background:'+cor+'14;color:'+cor+'">'+ic+' '+lab+'</div>';
+      }
+    }catch(e){}
     var onda = j.onda || '—';
     var html = '<div class="cg-hero">'
       + '<div class="lbl">Sua onda de carregamento</div>'
       + '<div class="onda">'+onda+'</div>'
       + '<div class="sub">Chegue no horário da sua onda para carregar.</div>'
+      + statusChip
       + '</div>'
       + '<div class="cg-grid">'
       +   '<div class="cg-cell gaiola big"><div class="ci">🏷️</div><div class="cl">Gaiola</div><div class="cv">'+(j.gaiola||'—')+'</div></div>'
-      +   '<div class="cg-cell big"><div class="ci">🚪</div><div class="cl">Vaga / Doca</div><div class="cv">'+(j.vaga||'—')+'</div></div>'
+      +   '<div class="cg-cell big"><div class="ci">🚪</div><div class="cl">Vaga</div><div class="cv">'+(j.vaga||'—')+'</div></div>'
       + '</div>'
       + '<div class="cg-nota">⚠️<div>Chegue na <b>sua onda</b>. Atraso ou não comparecer (<b>NS</b>) gera pausa. Se não puder vir, avise o dispatcher antes.</div></div>';
     corpo.innerHTML=html;
