@@ -28,6 +28,30 @@
     border-radius:999px;font-size:1rem;font-weight:900;background:rgba(0,0,0,.55);color:var(--gold2);
     border:2px solid var(--gold);backdrop-filter:blur(4px);min-width:48px;box-shadow:0 3px 10px rgba(0,0,0,.4)}
   .amais.on{background:var(--gold);color:#0b0f14}
+
+  /* ===== TELA CARREGAMENTO (gaiola/onda/vaga) ===== */
+  .cg-hero{position:relative;border-radius:20px;padding:22px 18px;overflow:hidden;
+    background:linear-gradient(135deg,rgba(245,179,1,.16),rgba(249,115,22,.10));
+    border:1.5px solid rgba(245,179,1,.35);box-shadow:0 8px 30px rgba(245,179,1,.10);margin-bottom:14px}
+  .cg-hero::after{content:"";position:absolute;right:-40px;top:-40px;width:160px;height:160px;
+    border-radius:50%;background:radial-gradient(circle,rgba(245,179,1,.22),transparent 70%)}
+  .cg-hero .lbl{font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;color:var(--gold2);font-weight:800}
+  .cg-hero .onda{font-size:2.7rem;font-weight:900;line-height:1.05;margin:4px 0 2px;
+    background:linear-gradient(135deg,#fff,var(--gold2));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+  .cg-hero .sub{color:var(--mute);font-size:.85rem}
+  .cg-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
+  .cg-cell{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;text-align:center}
+  .cg-cell.big{grid-column:1 / -1}
+  .cg-cell .ci{font-size:1.5rem;line-height:1}
+  .cg-cell .cl{font-size:.7rem;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);font-weight:700;margin-top:6px}
+  .cg-cell .cv{font-size:1.55rem;font-weight:800;margin-top:2px;color:var(--ink);word-break:break-word}
+  .cg-cell.gaiola .cv{color:var(--gold2)}
+  .cg-nota{background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.25);border-radius:12px;
+    padding:11px 13px;font-size:.82rem;color:#fca5a5;display:flex;gap:8px;align-items:flex-start}
+  .cg-vazio{text-align:center;color:var(--mute);padding:36px 16px}
+  .cg-vazio .ic{font-size:2.4rem;opacity:.5}
+  .cg-refresh{width:100%;margin-top:6px;background:var(--card2);border:1px solid var(--line);color:var(--mute);
+    border-radius:12px;padding:11px;font-weight:700;font-size:.9rem}
   /* MODO GRANDE — fontes e alvos maiores para todas as idades */
   body.grande{font-size:118%}
   body.grande h1{font-size:1.5rem}
@@ -351,6 +375,7 @@
       </div>
       <div id="ultimaHora" style="display:none"></div>
       <button class="btp" id="btEnviar" disabled>Enviar disponibilidade</button>
+      <button class="sec" id="btCarregamento">📦 Meu carregamento (onda · vaga · gaiola)</button>
       <button class="sec" id="btConsultar">📅 Consultar meus envios</button>
       <div class="erro" id="erroEnviar"></div>
     </div>
@@ -370,6 +395,16 @@
       <div class="card"><div class="drv" id="drvConsulta"></div>
         <div id="listaEnvios" style="margin-top:12px"></div>
         <div id="histNS" style="display:none"></div></div>
+      <button class="ghost" style="justify-content:center" onclick="reiniciar()">← Informar outra placa</button>
+    </div>
+
+    <!-- PASSO 5 — MEU CARREGAMENTO -->
+    <div id="passoCarregamento" class="esconde">
+      <button class="ghost" onclick="trocarPasso('passoDisp')">← Voltar</button>
+      <div class="card"><div class="drv" id="drvCarreg"></div>
+        <div id="cgCorpo" style="margin-top:12px"></div>
+        <button class="cg-refresh" onclick="mostrarCarregamento()">🔄 Atualizar</button>
+      </div>
       <button class="ghost" style="justify-content:center" onclick="reiniciar()">← Informar outra placa</button>
     </div>
 
@@ -908,15 +943,46 @@ async function mostrarVagaDoDia(){
     if(!r.ok) return;
     const j=await r.json();
     if(!j || !j.found || !j.onda && !j.vaga && !j.gaiola) return;   // sem distribuição pra ele hoje
+    // atalho discreto na tela de disponibilidade -> leva à aba dedicada
     box.style.display='';
     box.className='jaCard';
-    box.innerHTML='<div class="jt">📦 Seu carregamento de hoje</div>'
+    box.style.cursor='pointer';
+    box.onclick=function(){ trocarPasso('passoCarregamento'); mostrarCarregamento(); };
+    box.innerHTML='<div class="jt">📦 Seu carregamento de hoje <span style="float:right;color:var(--gold2)">ver ›</span></div>'
       + '<div class="jaLinha"><span class="jd">Onda</span><span class="jc">'+(j.onda||'—')+'</span></div>'
-      + '<div class="jaLinha"><span class="jd">Vaga / Doca</span><span class="jc">'+(j.vaga||'—')+'</span></div>'
-      + '<div class="jaLinha"><span class="jd">Gaiola</span><span class="jc">'+(j.gaiola||'—')+'</span></div>'
-      + (j.regiao?('<div class="jaLinha"><span class="jd">Região</span><span class="jc">'+j.regiao+'</span></div>'):'')
-      + '<div style="font-size:.76rem;color:var(--mute);margin-top:8px">Chegue na sua onda. Atraso ou não comparecer (NS) gera pausa.</div>';
-  }catch(e){ /* silencioso: se não houver, só não mostra */ }
+      + '<div class="jaLinha"><span class="jd">Gaiola</span><span class="jc">'+(j.gaiola||'—')+'</span></div>';
+  }catch(e){ /* silencioso */ }
+}
+
+// ===== TELA DEDICADA: MEU CARREGAMENTO (profissional) =====
+async function mostrarCarregamento(){
+  var corpo=$('cgCorpo'); if(!corpo) return;
+  if($('drvCarreg')) $('drvCarreg').innerHTML = $('drvDisp') ? $('drvDisp').innerHTML : '';
+  corpo.innerHTML='<div class="cg-vazio"><div class="ic">📦</div><p>Carregando…</p></div>';
+  try{
+    const r=await fetch(CFG.WORKER_URL+'/rotadodia?placa='+encodeURIComponent(placaAtual)+'&t='+Date.now());
+    const j = r.ok ? await r.json() : {};
+    if(!j || !j.found || (!j.onda && !j.vaga && !j.gaiola)){
+      corpo.innerHTML='<div class="cg-vazio"><div class="ic">🕗</div>'
+        + '<p><b>Ainda não tem carregamento pra você hoje.</b></p>'
+        + '<p style="font-size:.85rem">A distribuição sai mais perto do horário. Volte aqui e toque em <b>Atualizar</b>.</p></div>';
+      return;
+    }
+    var onda = j.onda || '—';
+    var html = '<div class="cg-hero">'
+      + '<div class="lbl">Sua onda de carregamento</div>'
+      + '<div class="onda">'+onda+'</div>'
+      + '<div class="sub">Chegue no horário da sua onda para carregar.</div>'
+      + '</div>'
+      + '<div class="cg-grid">'
+      +   '<div class="cg-cell gaiola big"><div class="ci">🏷️</div><div class="cl">Gaiola</div><div class="cv">'+(j.gaiola||'—')+'</div></div>'
+      +   '<div class="cg-cell big"><div class="ci">🚪</div><div class="cl">Vaga / Doca</div><div class="cv">'+(j.vaga||'—')+'</div></div>'
+      + '</div>'
+      + '<div class="cg-nota">⚠️<div>Chegue na <b>sua onda</b>. Atraso ou não comparecer (<b>NS</b>) gera pausa. Se não puder vir, avise o dispatcher antes.</div></div>';
+    corpo.innerHTML=html;
+  }catch(e){
+    corpo.innerHTML='<div class="cg-vazio"><div class="ic">📡</div><p>Não consegui buscar agora. Toque em <b>Atualizar</b>.</p></div>';
+  }
 }
 
 function atualizarUltimaHora(){
@@ -1234,11 +1300,12 @@ async function solicitarExclusao(dataBr){
   }
 }
 $('btConsultar').onclick=consultar;
+$('btCarregamento').onclick=function(){ trocarPasso('passoCarregamento'); mostrarCarregamento(); };
 $('btVerEnvios').onclick=consultar;
 
 function reiniciar(){ atual=null; placaAtual=''; statusAtual='OK';
   $('placa').value=''; $('erroPlaca').textContent=''; $('erroEnviar').textContent=''; trocarPasso('passoPlaca'); }
-function trocarPasso(id){ ['passoPlaca','passoDisp','passoOk','passoConsulta'].forEach(p=>$(p).classList.toggle('esconde',p!==id));
+function trocarPasso(id){ ['passoPlaca','passoDisp','passoOk','passoConsulta','passoCarregamento'].forEach(p=>$(p).classList.toggle('esconde',p!==id));
   window.scrollTo({top:0,behavior:'smooth'}); }
 function abrirInfo(){ $('sheetInfo').classList.add('on'); document.body.style.overflow='hidden'; }
 function fecharInfo(){ $('sheetInfo').classList.remove('on'); document.body.style.overflow=''; }
