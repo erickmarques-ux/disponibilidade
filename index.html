@@ -937,6 +937,22 @@ function montarEscolha(){
 function rotuloHist(t){ t=String(t||'').toUpperCase(); return t==='NS'?'NS (não compareceu)':(t==='ATRASO'?'Atraso':(t==='PAUSA'?'Pausa':(t==='VOLTA'?'Retorno':(t==='CHEGOU'?'Presença OK':t)))); }
 
 // Consulta a vaga/onda/gaiola do motorista na ROTA DO DIA (via worker) e mostra um card.
+// dado do carregamento é válido? precisa ter subido E ser recente (mesmo dia, até 14h de validade)
+function _cargaValida(j){
+  if(!j || !j.found) return false;
+  if(!j.onda && !j.vaga && !j.gaiola) return false;
+  if(j.subiu===false) return false;               // só quem o dispatcher subiu
+  if(j.ts){
+    const t=new Date(j.ts); if(!isNaN(t.getTime())){
+      const dif=Date.now()-t.getTime();
+      if(dif > 14*3600*1000) return false;         // mais de 14h = desatualizado, não mostra
+      const hj=new Date(); hj.setHours(0,0,0,0);
+      if(t.getTime() < hj.getTime()) return false; // publicado antes de hoje = velho
+    }
+  }
+  return true;
+}
+
 async function mostrarVagaDoDia(){
   var box=$('cardVaga'); if(!box) return;
   box.style.display='none'; box.innerHTML='';
@@ -944,8 +960,7 @@ async function mostrarVagaDoDia(){
     const r=await fetch(CFG.WORKER_URL+'/rotadodia?placa='+encodeURIComponent(placaAtual)+'&t='+Date.now());
     if(!r.ok) return;
     const j=await r.json();
-    if(!j || !j.found || !j.onda && !j.vaga && !j.gaiola) return;   // sem distribuição pra ele hoje
-    // atalho discreto na tela de disponibilidade -> leva à aba dedicada
+    if(!_cargaValida(j)) return;   // sem carga válida/recente pra ele: nem mostra o atalho
     box.style.display='';
     box.className='jaCard';
     box.style.cursor='pointer';
@@ -964,39 +979,17 @@ async function mostrarCarregamento(){
   try{
     const r=await fetch(CFG.WORKER_URL+'/rotadodia?placa='+encodeURIComponent(placaAtual)+'&t='+Date.now());
     const j = r.ok ? await r.json() : {};
-    if(!j || !j.found || (!j.onda && !j.vaga && !j.gaiola)){
+    if(!_cargaValida(j)){
       corpo.innerHTML='<div class="cg-vazio"><div class="ic">🕗</div>'
-        + '<p><b>Ainda não tem carregamento pra você hoje.</b></p>'
-        + '<p style="font-size:.85rem">A distribuição sai mais perto do horário. Volte aqui e toque em <b>Atualizar</b>.</p></div>';
+        + '<p><b>Ainda não tem carregamento liberado pra você.</b></p>'
+        + '<p style="font-size:.85rem">A gaiola e a vaga aparecem aqui quando o dispatcher subir a sua rota. Toque em <b>Atualizar</b> mais perto do horário.</p></div>';
       return;
     }
-    // status do carregamento (do get-routes-list, via snapshot do worker) — casa por nome do motorista
-    var statusChip='';
-    try{
-      const rc=await fetch(CFG.WORKER_URL+'/?t='+Date.now());
-      const carr=rc.ok ? await rc.json() : {};
-      const bases=(carr&&carr.bases)?carr.bases:carr;
-      var alvo=(atual&&atual.nome?atual.nome:'').toString().trim().toUpperCase();
-      var achou=null;
-      Object.keys(bases||{}).forEach(function(b){
-        var linhas=(bases[b]&&bases[b].linhas)?bases[b].linhas:(Array.isArray(bases[b])?bases[b]:[]);
-        (linhas||[]).forEach(function(l){
-          if(!achou && l.motorista && l.motorista.toString().trim().toUpperCase()===alvo) achou=l;
-        });
-      });
-      if(achou){
-        var lab=achou.statusLabel||achou.status||'';
-        var cor = /finaliz/i.test(lab)?'#22c55e':(/rota/i.test(lab)?'#3b82f6':(/subiu/i.test(lab)?'#22c55e':'#f59e0b'));
-        var ic = /finaliz/i.test(lab)?'✅':(/rota/i.test(lab)?'🚚':(/subiu/i.test(lab)?'✓':'⏳'));
-        statusChip='<div class="cg-status" style="border-color:'+cor+'55;background:'+cor+'14;color:'+cor+'">'+ic+' '+lab+'</div>';
-      }
-    }catch(e){}
     var onda = j.onda || '—';
     var html = '<div class="cg-hero">'
       + '<div class="lbl">Sua onda de carregamento</div>'
       + '<div class="onda">'+onda+'</div>'
       + '<div class="sub">Chegue no horário da sua onda para carregar.</div>'
-      + statusChip
       + '</div>'
       + '<div class="cg-grid">'
       +   '<div class="cg-cell gaiola big"><div class="ci">🏷️</div><div class="cl">Gaiola</div><div class="cv">'+(j.gaiola||'—')+'</div></div>'
