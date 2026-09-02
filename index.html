@@ -937,17 +937,43 @@ function montarEscolha(){
 function rotuloHist(t){ t=String(t||'').toUpperCase(); return t==='NS'?'NS (não compareceu)':(t==='ATRASO'?'Atraso':(t==='PAUSA'?'Pausa':(t==='VOLTA'?'Retorno':(t==='CHEGOU'?'Presença OK':t)))); }
 
 // Consulta a vaga/onda/gaiola do motorista na ROTA DO DIA (via worker) e mostra um card.
-// dado do carregamento é válido? precisa ter subido E ser recente (mesmo dia, até 14h de validade)
+// busca a linha do motorista no snapshot de carregamento (URL raiz do worker)
+async function _buscarCarga(){
+  const r=await fetch(CFG.WORKER_URL+'/?t='+Date.now());
+  if(!r.ok) return null;
+  const carr=await r.json();
+  const bases=(carr&&carr.bases)?carr.bases:carr;
+  const alvoNome=(atual&&atual.nome?atual.nome:'').toString().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ').trim().toUpperCase();
+  const alvoPlaca=String(placaAtual||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+  let achou=null, atualizadoEm=null;
+  Object.keys(bases||{}).forEach(function(b){
+    const bloco=bases[b]||{};
+    const linhas=bloco.linhas||(Array.isArray(bloco)?bloco:[]);
+    (linhas||[]).forEach(function(l){
+      if(achou) return;
+      const nomeL=String(l.motorista||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ').trim().toUpperCase();
+      const placaL=String(l.placa||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+      if((alvoPlaca&&placaL&&placaL===alvoPlaca) || (alvoNome&&nomeL&&nomeL===alvoNome)){
+        achou=l; atualizadoEm=bloco.atualizadoEm||carr.atualizadoEm||null;
+      }
+    });
+  });
+  if(!achou) return null;
+  return { onda:achou.onda||'', vaga:achou.doca||'', gaiola:achou.rota||'', subiu:!!achou.subiu,
+           status:achou.status||'', statusLabel:achou.statusLabel||'', atualizadoEm:atualizadoEm };
+}
+
+// a carga é válida? precisa ter subido E o snapshot ser recente (hoje, até 14h)
 function _cargaValida(j){
-  if(!j || !j.found) return false;
+  if(!j) return false;
   if(!j.onda && !j.vaga && !j.gaiola) return false;
-  if(j.subiu===false) return false;               // só quem o dispatcher subiu
-  if(j.ts){
-    const t=new Date(j.ts); if(!isNaN(t.getTime())){
-      const dif=Date.now()-t.getTime();
-      if(dif > 14*3600*1000) return false;         // mais de 14h = desatualizado, não mostra
+  if(!j.subiu) return false;                        // só quem o dispatcher subiu
+  if(j.atualizadoEm){
+    const t=new Date(j.atualizadoEm);
+    if(!isNaN(t.getTime())){
+      if(Date.now()-t.getTime() > 14*3600*1000) return false;   // snapshot velho
       const hj=new Date(); hj.setHours(0,0,0,0);
-      if(t.getTime() < hj.getTime()) return false; // publicado antes de hoje = velho
+      if(t.getTime() < hj.getTime()) return false;              // de ontem
     }
   }
   return true;
@@ -957,10 +983,8 @@ async function mostrarVagaDoDia(){
   var box=$('cardVaga'); if(!box) return;
   box.style.display='none'; box.innerHTML='';
   try{
-    const r=await fetch(CFG.WORKER_URL+'/rotadodia?placa='+encodeURIComponent(placaAtual)+'&t='+Date.now());
-    if(!r.ok) return;
-    const j=await r.json();
-    if(!_cargaValida(j)) return;   // sem carga válida/recente pra ele: nem mostra o atalho
+    const j=await _buscarCarga();
+    if(!_cargaValida(j)) return;
     box.style.display='';
     box.className='jaCard';
     box.style.cursor='pointer';
@@ -977,19 +1001,26 @@ async function mostrarCarregamento(){
   if($('drvCarreg')) $('drvCarreg').innerHTML = $('drvDisp') ? $('drvDisp').innerHTML : '';
   corpo.innerHTML='<div class="cg-vazio"><div class="ic">📦</div><p>Carregando…</p></div>';
   try{
-    const r=await fetch(CFG.WORKER_URL+'/rotadodia?placa='+encodeURIComponent(placaAtual)+'&t='+Date.now());
-    const j = r.ok ? await r.json() : {};
+    const j=await _buscarCarga();
     if(!_cargaValida(j)){
       corpo.innerHTML='<div class="cg-vazio"><div class="ic">🕗</div>'
         + '<p><b>Ainda não tem carregamento liberado pra você.</b></p>'
         + '<p style="font-size:.85rem">A gaiola e a vaga aparecem aqui quando o dispatcher subir a sua rota. Toque em <b>Atualizar</b> mais perto do horário.</p></div>';
       return;
     }
-    var onda = j.onda || '—';
+    // chip de status (subiu / em rota / finalizada)
+    var lab=j.statusLabel||j.status||'';
+    var statusChip='';
+    if(lab){
+      var cor=/finaliz/i.test(lab)?'#22c55e':(/rota/i.test(lab)?'#3b82f6':'#22c55e');
+      var ic=/finaliz/i.test(lab)?'✅':(/rota/i.test(lab)?'🚚':'✓');
+      statusChip='<div style="display:inline-flex;align-items:center;gap:6px;margin-top:10px;padding:5px 12px;border-radius:999px;font-weight:700;font-size:.8rem;border:1px solid '+cor+'55;background:'+cor+'18;color:'+cor+'">'+ic+' '+lab+'</div>';
+    }
     var html = '<div class="cg-hero">'
       + '<div class="lbl">Sua onda de carregamento</div>'
-      + '<div class="onda">'+onda+'</div>'
+      + '<div class="onda">'+(j.onda||'—')+'</div>'
       + '<div class="sub">Chegue no horário da sua onda para carregar.</div>'
+      + statusChip
       + '</div>'
       + '<div class="cg-grid">'
       +   '<div class="cg-cell gaiola big"><div class="ci">🏷️</div><div class="cl">Gaiola</div><div class="cv">'+(j.gaiola||'—')+'</div></div>'
