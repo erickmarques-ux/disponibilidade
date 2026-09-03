@@ -996,10 +996,10 @@ async function mostrarVagaDoDia(){
 }
 
 // ===== TELA DEDICADA: MEU CARREGAMENTO (profissional) =====
-async function mostrarCarregamento(){
+async function mostrarCarregamento(silencioso){
   var corpo=$('cgCorpo'); if(!corpo) return;
   if($('drvCarreg')) $('drvCarreg').innerHTML = $('drvDisp') ? $('drvDisp').innerHTML : '';
-  corpo.innerHTML='<div class="cg-vazio"><div class="ic">📦</div><p>Carregando…</p></div>';
+  if(!silencioso) corpo.innerHTML='<div class="cg-vazio"><div class="ic">📦</div><p>Carregando…</p></div>';
   try{
     const j=await _buscarCarga();
     if(!_cargaValida(j)){
@@ -1353,7 +1353,11 @@ $('btVerEnvios').onclick=consultar;
 
 function reiniciar(){ atual=null; placaAtual=''; statusAtual='OK';
   $('placa').value=''; $('erroPlaca').textContent=''; $('erroEnviar').textContent=''; trocarPasso('passoPlaca'); }
+var _cgTimer=null;
 function trocarPasso(id){ ['passoPlaca','passoDisp','passoOk','passoConsulta','passoCarregamento'].forEach(p=>$(p).classList.toggle('esconde',p!==id));
+  // auto-refresh só enquanto a tela de carregamento estiver aberta
+  if(_cgTimer){ clearInterval(_cgTimer); _cgTimer=null; }
+  if(id==='passoCarregamento'){ _cgTimer=setInterval(function(){ if($('passoCarregamento') && !$('passoCarregamento').classList.contains('esconde')) mostrarCarregamento(true); else { clearInterval(_cgTimer); _cgTimer=null; } }, 20000); }
   window.scrollTo({top:0,behavior:'smooth'}); }
 function abrirInfo(){ $('sheetInfo').classList.add('on'); document.body.style.overflow='hidden'; }
 function fecharInfo(){ $('sheetInfo').classList.remove('on'); document.body.style.overflow=''; }
