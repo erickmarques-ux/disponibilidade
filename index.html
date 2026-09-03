@@ -939,28 +939,15 @@ function rotuloHist(t){ t=String(t||'').toUpperCase(); return t==='NS'?'NS (não
 // Consulta a vaga/onda/gaiola do motorista na ROTA DO DIA (via worker) e mostra um card.
 // busca a linha do motorista no snapshot de carregamento (URL raiz do worker)
 async function _buscarCarga(){
-  const r=await fetch(CFG.WORKER_URL+'/?t='+Date.now());
+  // pede ao worker SÓ a linha deste motorista (filtro server-side) — não baixa o snapshot inteiro
+  const nome=(atual&&atual.nome?atual.nome:'').toString();
+  const qs='driver='+encodeURIComponent(nome)+'&placa='+encodeURIComponent(placaAtual||'')+'&t='+Date.now();
+  const r=await fetch(CFG.WORKER_URL+'/?'+qs, {cache:'no-store'});
   if(!r.ok) return null;
-  const carr=await r.json();
-  const bases=(carr&&carr.bases)?carr.bases:carr;
-  const alvoNome=(atual&&atual.nome?atual.nome:'').toString().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ').trim().toUpperCase();
-  const alvoPlaca=String(placaAtual||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
-  let achou=null, atualizadoEm=null;
-  Object.keys(bases||{}).forEach(function(b){
-    const bloco=bases[b]||{};
-    const linhas=bloco.linhas||(Array.isArray(bloco)?bloco:[]);
-    (linhas||[]).forEach(function(l){
-      if(achou) return;
-      const nomeL=String(l.motorista||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ').trim().toUpperCase();
-      const placaL=String(l.placa||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
-      if((alvoPlaca&&placaL&&placaL===alvoPlaca) || (alvoNome&&nomeL&&nomeL===alvoNome)){
-        achou=l; atualizadoEm=bloco.atualizadoEm||carr.atualizadoEm||null;
-      }
-    });
-  });
-  if(!achou) return null;
-  return { onda:achou.onda||'', vaga:achou.doca||'', gaiola:achou.rota||'', subiu:!!achou.subiu,
-           status:achou.status||'', statusLabel:achou.statusLabel||'', atualizadoEm:atualizadoEm };
+  const j=await r.json();
+  if(!j || !j.found) return null;
+  return { onda:j.onda||'', vaga:j.vaga||'', gaiola:j.gaiola||'', subiu:!!j.subiu,
+           status:j.status||'', statusLabel:j.statusLabel||'', atualizadoEm:j.atualizadoEm||null };
 }
 
 // a carga é válida? precisa ter subido E o snapshot ser recente (hoje, até 14h)
