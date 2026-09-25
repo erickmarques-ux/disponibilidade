@@ -2,7 +2,7 @@
 <!-- =====================================================================
      DOCUMENTO CONTROLADO (ISO 9001 · 7.5) — KNG-DISP-SMG15
      Sistema: Disponibilidade de motoristas — link exclusivo da base SMG15
-     Versão: 2.2.0 · Data: 2026-09-25 · Gerado a partir de src/ (build.py) — não edite o arquivo final à mão.
+     Versão: 2.3.0 · Data: 2026-09-25 · Gerado a partir de src/ (build.py) — não edite o arquivo final à mão.
      Controlador (LGPD): Ebazar.com.br Ltda. (Mercado Livre) — operação Kangu
      Histórico de revisões: ver Dossiê de Conformidade, seção "Controle de mudanças".
      ===================================================================== -->
@@ -407,6 +407,9 @@ fieldset{ border:0; margin:0; padding:0; min-width:0; }
   font-size:.86rem; line-height:var(--lh-body); color:var(--color-blue-pale);
 }
 .info-callout b{ color:#dbeafe; }
+.info-callout--ok{ background:var(--tint-success); border-color:var(--tint-success-border); color:var(--color-success-pale); }
+.info-callout--warn{ background:var(--tint-danger); border-color:var(--tint-danger-border); color:var(--color-danger-light); }
+.info-callout--warn b{ color:#fff; }
 
 /* =====================================================================
    15. CONSULTA DE ENVIOS + HISTÓRICO
@@ -793,7 +796,7 @@ body.is-lite *, body.is-lite *::before, body.is-lite *::after{ animation:none !i
         <h2 class="page-title page-title--center" id="tituloOk">Registrado!</h2>
       </div>
       <div class="receipt" id="resumoOk"></div>
-      <p class="info-callout">⏱️ <b>Já está salvo.</b> Pode fechar tranquilo — a planilha atualiza sozinha em alguns segundos. Não precisa enviar de novo.</p>
+      <p class="info-callout" id="avisoSalvo" role="status" aria-live="polite">⏱️ <b>Já está salvo.</b> Pode fechar tranquilo — a planilha atualiza sozinha em alguns segundos. Não precisa enviar de novo.</p>
       <button type="button" class="btn btn--secondary" id="btVerEnvios" data-action="consultar">📅 Ver meus envios</button>
       <button type="button" class="btn btn--ghost btn--block" data-action="reiniciar">← Sair / outra placa</button>
     </section>
@@ -1222,6 +1225,8 @@ const ADAPT = {
   suportaEspera: () => true,
   suportaSolicitar: () => true,
   janela: () => ({ ok: true }),
+  // a planilha da SMG15 publica os envios ~10 s a 1 min depois (processarLote) → dá para conferir
+  conferirNaPlanilha: true,
   textoJanela: () => '',
   boot: async () => true,
   liberar: () => {}
@@ -1543,8 +1548,9 @@ async function getJson(caminho){
 function apiCadastro(placa){ return getJson('/cadastro?' + ADAPT.qsBase() + 'placa=' + encodeURIComponent(placa) + '&t=' + Date.now()); }
 function apiEnvios(placa){ return getJson('/envios?' + ADAPT.qsBase() + 'placa=' + encodeURIComponent(placa) + '&t=' + Date.now()); }
 async function apiCarga(){
-  const nome = (atual && atual.nome ? atual.nome : '').toString();
-  const r = await fetch(CFG.WORKER_URL + '/?' + ADAPT.qsBase() + 'driver=' + encodeURIComponent(nome) + '&placa=' + encodeURIComponent(placaAtual || '') + '&t=' + Date.now(),
+  // v2.3: só a placa (o worker pega o nome no cadastro) — o nome do motorista não trafega na URL
+  if(!placaAtual) return null;
+  const r = await fetch(CFG.WORKER_URL + '/?' + ADAPT.qsBase() + 'placa=' + encodeURIComponent(placaAtual) + '&t=' + Date.now(),
     { cache:'no-store', headers: cabecalhosWorker(), credentials:'omit' });
   if(!r.ok) return null;
   const j = await r.json();
@@ -1841,12 +1847,15 @@ $('btEnviar').addEventListener('click', async function(){
   }
 
   this.disabled = true; this.textContent = 'Enviando…';
-  const falhas = []; let i = 0;
+  const falhas = [], semConfirmacao = []; let i = 0;
   for(const { iso, ciclosDoDia } of validos){
     i++; if(validos.length > 1) this.textContent = 'Enviando… (' + i + '/' + validos.length + ')';
     const campos = ADAPT.camposDisp(iso, ciclosDoDia);
     const dt = ddmmFromIso(iso);
-    if(await postForm(campos)){ enviosAtuais[dt] = ciclosDoDia.map(c => c.full).join(' · '); delete espera[dt]; delete excluidosLocais[dt]; }
+    if(await postForm(campos)){
+      enviosAtuais[dt] = ciclosDoDia.map(c => c.full).join(' · '); delete espera[dt]; delete excluidosLocais[dt];
+      if(!ultimoEnvioConfirmado) semConfirmacao.push({ dt, labels: ciclosDoDia.map(c => c.label) });
+    }
     else falhas.push(dt.slice(0,5));
   }
   this.disabled = false; this.textContent = 'Enviar disponibilidade';
@@ -1860,10 +1869,48 @@ $('btEnviar').addEventListener('click', async function(){
     validar(); return;
   }
   $('erroEnviar').textContent = '';
-  $('resumoOk').innerHTML = (ultimoEnvioConfirmado ? '✅ <b>Confirmado pelo formulário.</b><br>' : '') + '<b>' + validos.length + '</b> dia(s) ' + (subs.length ? 'atualizado(s)' : 'enviado(s)') + ':<br>' +
+  const tudoConfirmado = !semConfirmacao.length;
+  $('resumoOk').innerHTML = (tudoConfirmado ? '✅ <b>Confirmado pelo formulário.</b><br>' : '') + '<b>' + validos.length + '</b> dia(s) ' + (subs.length ? 'atualizado(s)' : 'enviado(s)') + ':<br>' +
     validos.map(x => DIAS_SEMANA[dataDeIso(x.iso).getDay()] + ' ' + ddmmFromIso(x.iso).slice(0,5) + ': <b>' + x.ciclosDoDia.map(c => c.label).join('+') + '</b>').join('<br>');
   trocarPasso('passoOk');
+  if(tudoConfirmado) avisoSalvo('ok', '✅ <b>Registrado e confirmado.</b> Pode fechar tranquilo — não precisa enviar de novo.');
+  else if(ADAPT.conferirNaPlanilha) conferirNaPlanilha(semConfirmacao);
+  else avisoSalvo('', '⏱️ <b>Enviado.</b> A planilha atualiza em alguns minutos — confira depois em <b>Ver meus envios</b>.');
 });
+
+/* ---------- Conferência na planilha (quando o envio não pôde ser confirmado pelo worker) ----------
+   O envio direto ao Google (no-cors) não diz se o formulário recusou. Então, depois de enviar, a página
+   consulta os envios publicados pela planilha por até ~2,5 min. Achou → "conferido". Não achou → avisa. */
+let _conferirT = null;
+function avisoSalvo(tipo, html){
+  const el = $('avisoSalvo'); if(!el) return;
+  el.className = 'info-callout' + (tipo ? ' info-callout--' + tipo : '');
+  el.innerHTML = html;
+}
+function conferirNaPlanilha(itens){
+  clearTimeout(_conferirT);
+  const placaDaVez = placaAtual, inicio = performance.now(), LIMITE = 150000;
+  avisoSalvo('', '⏳ <b>Conferindo na planilha…</b> leva até 1 minuto. Pode aguardar nesta tela.');
+  const tentar = async () => {
+    if(!atual || placaAtual !== placaDaVez || $('passoOk').classList.contains('is-hidden')) return;   // saiu da tela
+    try{
+      const j = await apiEnvios(placaDaVez);
+      const noServidor = {};
+      (j.envios || []).forEach(e => { if(!e.tipo && e.data) noServidor[e.data] = String(e.ciclos || ''); });
+      const faltam = itens.filter(it => !(noServidor[it.dt] !== undefined && it.labels.every(l => noServidor[it.dt].indexOf(l) > -1)));
+      if(!faltam.length){ avisoSalvo('ok', '✅ <b>Conferido: já está na planilha.</b> Pode fechar tranquilo.'); return; }
+      if(performance.now() - inicio > LIMITE){
+        avisoSalvo('warn', '⚠️ <b>Ainda não apareceu na planilha:</b> ' + esc(faltam.map(f => f.dt.slice(0,5)).join(', ')) + '.<br>' +
+          'Pode ser que o formulário tenha <b>recusado</b> (por exemplo, seu nome não está na lista). ' +
+          'Confira em <b>Ver meus envios</b> daqui a pouco; se não aparecer, <b>avise o dispatcher</b> e envie de novo.');
+        toast('Seu envio ainda não apareceu na planilha — confira em "Ver meus envios".', true);
+        return;
+      }
+    }catch(_){}
+    _conferirT = setTimeout(tentar, 12000);
+  };
+  _conferirT = setTimeout(tentar, 8000);
+}
 
 /* =====================================================================
    11. LISTA DE ESPERA (hoje/amanhã fora do prazo, até 15h)
@@ -2102,6 +2149,7 @@ function trocarPasso(id){
 // LGPD/SEGURANÇA: "Sair" e o timeout de inatividade apagam da tela e da memória tudo o que é pessoal.
 function reiniciar(){
   if(_modalFim) _modalFim(false);
+  clearTimeout(_conferirT);
   fecharSheet();
   atual = null; placaAtual = ''; statusAtual = 'OK';
   enviosAtuais = {}; solicitacoes = {}; historicoNS = []; espera = {}; excluidosLocais = {};
