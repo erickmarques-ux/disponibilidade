@@ -2,7 +2,7 @@
 <!-- =====================================================================
      DOCUMENTO CONTROLADO (ISO 9001 · 7.5) — KNG-DISP-SMG15
      Sistema: Disponibilidade de motoristas — link exclusivo da base SMG15
-     Versão: 2.3.0 · Data: 2026-09-25 · Gerado a partir de src/ (build.py) — não edite o arquivo final à mão.
+     Versão: 2.3.4 · Data: 2026-09-25 · Gerado a partir de src/ (build.py) — não edite o arquivo final à mão.
      Controlador (LGPD): Ebazar.com.br Ltda. (Mercado Livre) — operação Kangu
      Histórico de revisões: ver Dossiê de Conformidade, seção "Controle de mudanças".
      ===================================================================== -->
@@ -1289,17 +1289,31 @@ function normStatus(s){ return String(s||'').normalize('NFD').replace(/[̀-ͯ]/g
 /* =====================================================================
    4. REGRAS DE PRAZO
    ===================================================================== */
+// Horários de cada ciclo: a base pode dar prazo/espera próprios por ciclo (config "por ciclo" na Torre).
+const fechaDe = c => (c && c.fecha != null && !isNaN(c.fecha)) ? +c.fecha : CFG.HORA_FECHA;
+const esperaDe = c => (c && c.espera != null && !isNaN(c.espera)) ? +c.espera : CFG.HORA_LIMITE_ESPERA;
+function menorFecha(){ return CFG.CICLOS.filter(c => !(c.prazoEspecial && c.prazoEspecial.mesmoDia)).reduce((m, c) => Math.min(m, fechaDe(c)), CFG.HORA_FECHA); }
+function esperaAberta(iso, c){
+  const agora = new Date(), alvoZ = d0(dataDeIso(iso));
+  if(alvoZ < d0(agora)) return false;
+  const lim = new Date(alvoZ); lim.setHours(esperaDe(c), 0, 0, 0);
+  return agora < lim;
+}
 // Estado do DIA (regra geral): 'NORMAL' | 'ESPERA' | 'FECHADO'
 function estadoDoDia(alvo){
   const agora = new Date(), alvoZ = d0(alvo);
   if(alvoZ < d0(agora)) return 'FECHADO';
-  const limNormal = new Date(alvoZ); limNormal.setDate(limNormal.getDate()-1); limNormal.setHours(CFG.HORA_FECHA,0,0,0);
+  const limNormal = new Date(alvoZ); limNormal.setDate(limNormal.getDate()-1); limNormal.setHours(menorFecha(),0,0,0);
   const limEspera = new Date(alvoZ); limEspera.setHours(CFG.HORA_LIMITE_ESPERA,0,0,0);
   if(agora < limNormal) return 'NORMAL';
   if(agora < limEspera) return 'ESPERA';
   return 'FECHADO';
 }
-function podeEspera(iso){ return estadoDoDia(dataDeIso(iso)) === 'ESPERA'; }
+// Espera aberta no dia: algum ciclo já saiu do prazo com prioridade e a espera DELE ainda não fechou.
+function podeEspera(iso){
+  if(d0(dataDeIso(iso)) < d0(new Date())) return false;
+  return CFG.CICLOS.some(c => !(c.semDomingo && ehDomingo(iso)) && !cicloValidoNoDia(iso, c) && esperaAberta(iso, c));
+}
 
 // Prazo POR CICLO: a regra geral (18h da véspera) ou a exceção do ciclo (ex.: SD até 10h30 do próprio dia).
 function cicloEstadoNormal(alvo, ciclo){
@@ -1312,14 +1326,19 @@ function cicloEstadoNormal(alvo, ciclo){
     const lim = new Date(alvoZ); lim.setHours(h, m, 0, 0);
     return agora < lim;
   }
-  const limNormal = new Date(alvoZ); limNormal.setDate(limNormal.getDate()-1); limNormal.setHours(CFG.HORA_FECHA,0,0,0);
+  const limNormal = new Date(alvoZ); limNormal.setDate(limNormal.getDate()-1); limNormal.setHours(fechaDe(ciclo),0,0,0);
   return agora < limNormal;
 }
 function cicloValidoNoDia(iso, ciclo){
   if(ciclo.semDomingo && ehDomingo(iso)) return false;
   return cicloEstadoNormal(dataDeIso(iso), ciclo);
 }
-function cicloPorTexto(txt){ return CFG.CICLOS.find(c => String(txt).trim().indexOf(c.label) === 0); }
+// exato primeiro; senão o MAIS LONGO que casa no começo ("AM2 (08:30)" é AM2, não AM)
+function cicloPorTexto(txt){
+  const t = String(txt).trim();
+  return CFG.CICLOS.find(c => c.label === t) ||
+    CFG.CICLOS.filter(c => t.indexOf(c.label) === 0).sort((a, b) => b.label.length - a.label.length)[0];
+}
 
 // Excluir direto: dia ainda no prazo normal OU todos os ciclos marcados ainda estão no prazo
 // (ex.: marcou só SD hoje às 9h → pode desfazer até 10h30).
@@ -1401,12 +1420,19 @@ document.addEventListener('keydown', e => {
    ===================================================================== */
 function ciclosNormais(){ return CFG.CICLOS.filter(c => !(c.prazoEspecial && c.prazoEspecial.mesmoDia)); }
 function ciclosEspeciais(){ return CFG.CICLOS.filter(c => c.prazoEspecial && c.prazoEspecial.mesmoDia); }
+// agrupa ciclos com o mesmo valor: [{ v: 18, ciclos: ['AM','PM'] }, { v: 14, ciclos: ['NOITE'] }]
+function agruparPor(lista, fn){ const g = []; lista.forEach(c => { const v = fn(c); const x = g.find(y => y.v === v); if(x) x.ciclos.push(c.label); else g.push({ v, ciclos: [c.label] }); }); return g; }
+function textoEspera(){
+  const g = agruparPor(CFG.CICLOS, esperaDe);
+  if(g.length <= 1) return 'fecha às <b>' + (g.length ? g[0].v : CFG.HORA_LIMITE_ESPERA) + 'h do próprio dia</b>';
+  return 'fecha no próprio dia: ' + g.map(x => '<b>' + x.ciclos.join('/') + '</b> às <b>' + x.v + 'h</b>').join(', ');
+}
 function atualizarAvisoPrazo(){
   const partes = [];
   const normais = ciclosNormais(), especiais = ciclosEspeciais();
-  if(normais.length) partes.push('<b>' + normais.map(c => c.label).join('/') + '</b>: marcar até as <b>' + CFG.HORA_FECHA + 'h da véspera</b> garante <b>prioridade</b> na distribuição das rotas (a rota depende da demanda do Meli).');
+  agruparPor(normais, fechaDe).forEach((x, i) => partes.push('<b>' + x.ciclos.join('/') + '</b>: marcar até as <b>' + x.v + 'h da véspera</b> garante <b>prioridade</b>' + (i === 0 ? ' na distribuição das rotas (a rota depende da demanda do Meli)' : '') + '.'));
   especiais.forEach(c => partes.push('<b>' + c.label + '</b>: pode marcar com <b>prioridade</b> até as <b>' + fmtHora(c.prazoEspecial.hora) + ' do próprio dia</b>.'));
-  partes.push('Depois do prazo de cada ciclo, o dia entra em <b>lista de espera</b> — sem prioridade — que fecha às <b>' + CFG.HORA_LIMITE_ESPERA + 'h do próprio dia</b>.');
+  partes.push('Depois do prazo de cada ciclo, o dia entra em <b>lista de espera</b> — sem prioridade — que ' + textoEspera() + '.');
   const jt = ADAPT.textoJanela(); if(jt) partes.push(jt);
   $('avisoPrazo').innerHTML = '<span class="notice__icon" aria-hidden="true">📢</span><div><b>Como funciona o prazo:</b> ' + partes.join(' ') + '</div>';
 }
@@ -1430,8 +1456,9 @@ function htmlSeguro(s){
 }
 function fmtHoras(){
   const li = $('infoHorarios'); if(li) li.innerHTML = CFG.CICLOS.map(c => '<li>' + esc(c.label) + ' — ' + esc(c.hora) + '</li>').join('');
-  const f = $('cuFecha'); if(f) f.textContent = CFG.HORA_FECHA + 'h';
-  const e = $('cuEspera'); if(e) e.textContent = CFG.HORA_LIMITE_ESPERA + 'h';
+  const gf = agruparPor(ciclosNormais(), fechaDe), ge = agruparPor(CFG.CICLOS, esperaDe);
+  const f = $('cuFecha'); if(f) f.textContent = gf.length > 1 ? 'no horário de cada ciclo' : ((gf.length ? gf[0].v : CFG.HORA_FECHA) + 'h');
+  const e = $('cuEspera'); if(e) e.textContent = ge.length > 1 ? 'no horário de cada ciclo' : ((ge.length ? ge[0].v : CFG.HORA_LIMITE_ESPERA) + 'h');
 }
 function renderInformativo(){
   const I = CFG.INFORMATIVO; if(!I) return;
@@ -1917,7 +1944,7 @@ function conferirNaPlanilha(itens){
    ===================================================================== */
 // Ciclos que podem ir para a espera num dia: fora do prazo normal (os que ainda estão no prazo
 // devem ser marcados normalmente, com prioridade) e respeitando domingo sem PM.
-function ciclosDeEspera(iso){ return CFG.CICLOS.filter(c => !(c.semDomingo && ehDomingo(iso)) && !cicloValidoNoDia(iso, c)); }
+function ciclosDeEspera(iso){ return CFG.CICLOS.filter(c => !(c.semDomingo && ehDomingo(iso)) && !cicloValidoNoDia(iso, c) && esperaAberta(iso, c)); }
 function atualizarUltimaHora(){
   const box = $('ultimaHora');
   if(statusAtual === 'BLOQUEIO' || !ADAPT.suportaEspera()){ box.innerHTML = ''; mostrar(box, false); return; }
@@ -1928,7 +1955,7 @@ function atualizarUltimaHora(){
   if(!cand.length){ box.innerHTML = ''; mostrar(box, false); return; }
   box.innerHTML = '<h3 class="waitlist__title">⏰ Perdeu o horário? Entre na lista de espera</h3>' +
     '<p class="waitlist__text">Você pode se colocar à disposição, mas <b>sem prioridade</b> (quem marcou no prazo é atendido primeiro). ' +
-    'Fica aguardando: só é chamado se precisarmos de <b>ambulância</b> ou <b>substituir</b> alguém.<br><small class="text-muted">A espera de cada dia fecha às ' + CFG.HORA_LIMITE_ESPERA + 'h.</small></p>' +
+    'Fica aguardando: só é chamado se precisarmos de <b>ambulância</b> ou <b>substituir</b> alguém.<br><small class="text-muted">A espera ' + textoEspera().replace(/<\/?b>/g, '') + '.</small></p>' +
     cand.map(o => {
       const dt = ddmmFromIso(o.iso), dm = dt.slice(0,5), ja = espera[dt];
       if(ja !== undefined){
